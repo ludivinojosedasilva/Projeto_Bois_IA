@@ -9,7 +9,7 @@ from datetime import datetime
 import pandas as pd
 import plotly.express as px
 from ultralytics import YOLO
-from Pathlib import Path
+from pathlib import Path
 
 # --- CONFIGURAÇÕES ---
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
