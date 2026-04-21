@@ -1,7 +1,6 @@
 streamlit
+ultralytics
 tensorflow-cpu
-opencv-python-headless
 pillow
 pandas
 plotly
-ultralytics
