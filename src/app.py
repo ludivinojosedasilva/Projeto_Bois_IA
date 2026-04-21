@@ -7,22 +7,19 @@ import sqlite3
 from datetime import datetime
 import pandas as pd
 import os
+import plotly.express as px
 
 # --- CONFIGURAÇÕES DE CAMINHO ---
-# No Streamlit Cloud, os caminhos são relativos à raiz do repositório
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-# O banco de dados e as fotos ficam na estrutura do projeto
 DB_PATH = os.path.join(BASE_DIR, 'monitoramento_bois.db')
 IMG_SAVE_PATH = os.path.join(BASE_DIR, 'fotos_pesagens')
-# Caminho para o modelo .h5 dentro da pasta 'models' (um nível acima de 'src')
 MODEL_PATH = os.path.join(BASE_DIR, '..', 'models', 'modelo_peso_bois.h5')
 
-# Garantir que a pasta de fotos existe no servidor
+# Garantir existência de pastas
 if not os.path.exists(IMG_SAVE_PATH):
     os.makedirs(IMG_SAVE_PATH)
 
 def init_db():
-    """Cria o banco de dados e a tabela se não existirem"""
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     c.execute('''CREATE TABLE IF NOT EXISTS pesagens 
@@ -36,133 +33,138 @@ def init_db():
 
 @st.cache_resource
 def load_model_ia():
-    """Carrega o modelo Keras de forma otimizada para o Streamlit"""
     try:
         model = tf.keras.models.load_model(MODEL_PATH, compile=False)
         model.compile(optimizer='adam', loss='mae')
         return model
     except Exception as e:
-        st.error(f"Erro ao carregar o arquivo do modelo: {e}")
+        st.error(f"Erro ao carregar o modelo: {e}")
         return None
 
+def calcular_gmd(brinco_id, peso_atual):
+    """Calcula o Ganho Médio Diário comparando com a última pesagem no banco"""
+    conn = sqlite3.connect(DB_PATH)
+    query = "SELECT data, peso_estimado FROM pesagens WHERE brinco_id = ? ORDER BY id DESC LIMIT 1"
+    df_ant = pd.read_sql_query(query, conn, params=(brinco_id,))
+    conn.close()
+
+    if not df_ant.empty:
+        peso_ant = df_ant['peso_estimado'].values[0]
+        data_ant = datetime.strptime(df_ant['data'].values[0], "%d/%m/%Y %H:%M:%S")
+        hoje = datetime.now()
+        
+        dias = (hoje - data_ant).days
+        if dias <= 0: dias = 1 # Evita divisão por zero
+        
+        gmd = (peso_atual - peso_ant) / dias
+        return gmd, dias, peso_ant
+    return None, None, None
+
 def verificar_se_e_boi(img_input, modelo):
-    """
-    Filtro de consistência: Se o peso estimado for absurdo (fora de 50-1500kg),
-    o sistema alerta que a imagem pode não ser de um bovino válido.
-    """
     pred = modelo.predict(img_input)
     peso = float(pred[0][0])
-    # Critério técnico para gado de corte adulto
+    # Filtro comercial: Recusa se o peso for impossível para a raça/idade
     if peso < 50 or peso > 1500:
         return False, peso
     return True, peso
 
-# --- INTERFACE DO USUÁRIO (UI) ---
-st.set_page_config(page_title="Projeto Integrador - UFSC", layout="wide", page_icon="🐂")
+# --- INTERFACE ---
+st.set_page_config(page_title="Rayvora Analytics - UFSC", layout="wide", page_icon="📈")
 init_db()
 
-st.title("🐂 Monitoramento de Peso Bovino via IA")
-st.markdown("Solução de Visão Computacional desenvolvida para o **Projeto Integrador - UFSC Araranguá**")
+st.title("🐂 Rayvora: Inteligência em Ganho de Peso")
+st.markdown("Solução Profissional para Substituição de Balanças Físicas")
 
-menu = ["Nova Pesagem", "Histórico e Auditoria"]
+menu = ["Nova Pesagem", "Histórico e Analytics"]
 escolha = st.sidebar.selectbox("Navegação", menu)
 
 if escolha == "Nova Pesagem":
-    st.header("⚖️ Realizar Nova Estimativa")
+    st.header("⚖️ Estimativa de Biomassa e GMD")
+    col1, col2 = st.columns(2)
     
-    col_input, col_view = st.columns([1, 1])
-    
-    with col_input:
-        brinco = st.text_input("Identificação do Animal (Brinco):", "BOI_")
-        foto = st.file_uploader("Selecione a foto (Vista Traseira/Back View)", type=['jpg', 'jpeg', 'png'])
+    with col1:
+        brinco = st.text_input("ID do Animal (Brinco):", "BOI_")
+        foto = st.file_uploader("Capturar ou Carregar Foto (Back View)", type=['jpg', 'jpeg', 'png'])
     
     if foto is not None:
         img_original = Image.open(foto).convert('RGB')
-        with col_view:
-            st.image(img_original, caption="Imagem carregada para análise", width=400)
+        col2.image(img_original, caption="Preview da Captura", width=350)
         
-        if st.button("🚀 Calcular Peso"):
-            with st.spinner('Aguarde, a IA está processando os dados biométricos...'):
+        if st.button("🚀 Processar e Registrar"):
+            with st.spinner('Analisando morfologia do animal...'):
                 model = load_model_ia()
-                
                 if model:
-                    # Pré-processamento conforme o treinamento (128x128)
+                    # Pre-processamento
                     img_arr = np.array(img_original)
                     img_res = cv2.resize(img_arr, (128, 128)) / 255.0
                     img_input = np.expand_dims(img_res, axis=0)
                     
-                    # Predição e Validação pelo Filtro
                     valido, peso_final = verificar_se_e_boi(img_input, model)
                     
                     if not valido:
-                        st.error(f"❌ Imagem Rejeitada: O peso estimado de {peso_final:.2f}kg é inconsistente para um bovino.")
+                        st.error(f"❌ Imagem Inconsistente: Peso estimado ({peso_final:.2f}kg) fora dos padrões.")
                     else:
-                        # 1. Salvar Foto para Auditoria futura
-                        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                        nome_arq_foto = f"{brinco}_{timestamp}.jpg"
-                        caminho_final_foto = os.path.join(IMG_SAVE_PATH, nome_arq_foto)
-                        img_original.save(caminho_final_foto)
+                        # Cálculo do GMD (Ganho Médio Diário)
+                        gmd, intervalo, peso_ant = calcular_gmd(brinco, peso_final)
                         
-                        # 2. Registrar no Banco de Dados SQLite
+                        # Salvar arquivos
+                        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                        nome_foto = f"{brinco}_{timestamp}.jpg"
+                        img_original.save(os.path.join(IMG_SAVE_PATH, nome_foto))
+                        
                         conn = sqlite3.connect(DB_PATH)
                         c = conn.cursor()
                         agora = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
                         c.execute("INSERT INTO pesagens (brinco_id, data, peso_estimado, caminho_foto) VALUES (?, ?, ?, ?)", 
-                                  (brinco, agora, peso_final, nome_arq_foto))
+                                  (brinco, agora, peso_final, nome_foto))
                         conn.commit()
                         conn.close()
-                        
-                        st.success("✅ Pesagem registrada com sucesso!")
-                        st.metric(label="Peso Estimado", value=f"{peso_final:.2f} kg")
 
-elif escolha == "Histórico e Auditoria":
-    st.header("📈 Histórico de Registros")
+                        # Dashboard de Resultado Imediato
+                        st.success(f"Pesagem Registrada: {peso_final:.2f} kg")
+                        if gmd is not None:
+                            c1, c2 = st.columns(2)
+                            c1.metric("GMD Atual", f"{gmd:.3f} kg/dia", delta=f"{peso_final - peso_ant:.2f} kg")
+                            c2.info(f"Último manejo deste animal foi há {intervalo} dias.")
+
+elif escolha == "Histórico e Analytics":
+    st.header("📊 Painel de Desempenho do Rebanho")
     
     if os.path.exists(DB_PATH):
         conn = sqlite3.connect(DB_PATH)
-        df = pd.read_sql_query("SELECT id, brinco_id, data, peso_estimado, caminho_foto FROM pesagens ORDER BY id DESC", conn)
+        df = pd.read_sql_query("SELECT * FROM pesagens", conn)
         conn.close()
-        
+
         if not df.empty:
-            # Exibição da tabela principal
-            st.dataframe(df[['id', 'brinco_id', 'data', 'peso_estimado']], use_container_width=True)
+            df['data'] = pd.to_datetime(df['data'], dayfirst=True)
             
+            # Filtro por animal
+            lista_bois = df['brinco_id'].unique()
+            boi_sel = st.selectbox("Selecione um animal para análise individual:", lista_bois)
+            
+            df_boi = df[df['brinco_id'] == boi_sel].sort_values('data')
+            
+            # --- GRÁFICO DE EVOLUÇÃO ---
+            fig = px.line(df_boi, x='data', y='peso_estimado', 
+                          title=f'Curva de Crescimento - Animal {boi_sel}',
+                          markers=True, line_shape='spline', render_mode="svg")
+            fig.update_layout(yaxis_title="Peso (kg)", xaxis_title="Data")
+            st.plotly_chart(fig, use_container_width=True)
+            
+            # --- KPIS ---
+            k1, k2, k3 = st.columns(3)
+            k1.metric("Peso Inicial", f"{df_boi['peso_estimado'].iloc[0]:.2f} kg")
+            k2.metric("Peso Atual", f"{df_boi['peso_estimado'].iloc[-1]:.2f} kg")
+            total_ganho = df_boi['peso_estimado'].iloc[-1] - df_boi['peso_estimado'].iloc[0]
+            k3.metric("Ganho Total no Ciclo", f"{total_ganho:.2f} kg")
+
             st.divider()
-            st.subheader("🔍 Auditoria Visual e Download")
+            st.subheader("📋 Auditoria de Registros")
+            st.dataframe(df_boi[['id', 'data', 'peso_estimado', 'caminho_foto']], use_container_width=True)
             
-            id_audit = st.selectbox("Escolha o ID da pesagem para ver a evidência:", df['id'])
-            
-            # Recuperar dados da imagem selecionada
-            linha = df[df['id'] == id_audit]
-            nome_da_foto = linha['caminho_foto'].values[0]
-            caminho_foto_audit = os.path.join(IMG_SAVE_PATH, nome_da_foto)
-            
-            if os.path.exists(caminho_foto_audit):
-                st.image(Image.open(caminho_foto_audit), caption=f"Evidência da Pesagem #{id_audit}", width=500)
-                
-                # Botão de download da imagem
-                with open(caminho_foto_audit, "rb") as img_file:
-                    st.download_button(
-                        label="📥 Baixar Foto de Auditoria",
-                        data=img_file,
-                        file_name=nome_da_foto,
-                        mime="image/jpeg"
-                    )
-            else:
-                st.warning("O arquivo de imagem foi removido ou não existe no servidor.")
-            
-            # --- SEÇÃO DE EXPORTAÇÃO DO BANCO DE DADOS ---
+            # Download do Banco para relatório UFSC
             st.divider()
-            st.subheader("📦 Exportar Dados do Sistema")
-            if os.path.exists(DB_PATH):
-                with open(DB_PATH, "rb") as f:
-                    st.download_button(
-                        label="📥 Baixar Banco de Dados (.db)",
-                        data=f,
-                        file_name="monitoramento_bois.db",
-                        mime="application/x-sqlite3"
-                    )
+            with open(DB_PATH, "rb") as f:
+                st.download_button("📥 Baixar Base de Dados (.db)", f, "monitoramento.db")
         else:
-            st.info("Nenhuma pesagem foi encontrada no banco de dados.")
-    else:
-        st.error("Erro: Banco de dados não inicializado.")
+            st.info("Nenhum dado registrado ainda.")
