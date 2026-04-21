@@ -1,170 +1,211 @@
 import streamlit as st
-import os
-import sqlite3
-import pandas as pd
+import tensorflow as tf
 import numpy as np
 import cv2
-import plotly.express as px
-import tensorflow as tf
 from PIL import Image
+import sqlite3
 from datetime import datetime
-from pathlib import Path
-from ultralytics import YOLO
+import pandas as pd
+import os
+import plotly.express as px
 
-# --- CONFIGURAÇÕES DE AMBIENTE E CAMINHOS ---
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
-BASE_DIR = Path(__file__).resolve().parent.parent
-DB_PATH = BASE_DIR / "monitoramento_bois.db"
-IMG_DIR = BASE_DIR / "src" / "fotos_pesagens"
-MODEL_PATH = BASE_DIR / "models" / "modelo_peso_bois.h5"
+# --- CONFIGURAÇÕES DE CAMINHO ---
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DB_PATH = os.path.join(BASE_DIR, 'monitoramento_bois.db')
+IMG_SAVE_PATH = os.path.join(BASE_DIR, 'fotos_pesagens')
+# O caminho abaixo busca a pasta 'models' um nível acima da pasta 'src'
+MODEL_PATH = os.path.join(BASE_DIR, '..', 'models', 'modelo_peso_bois.h5')
 
-if not IMG_DIR.exists():
-    os.makedirs(IMG_DIR, exist_ok=True)
+# Garantir que a pasta de fotos existe
+if not os.path.exists(IMG_SAVE_PATH):
+    os.makedirs(IMG_SAVE_PATH)
 
-# --- SISTEMA DE BANCO DE DADOS ---
+# --- FUNÇÕES DE PROCESSAMENTO VISUAL AVANÇADO (RAYVORA VISION) ---
+
+def aplicar_clahe(imagem_np):
+    """
+    Equalização de Histograma Adaptativa Limitada por Contraste.
+    Melhora a definição de contornos do animal em condições de sombra ou sol forte.
+    """
+    # Converter para escala de cinza (exigência do CLAHE)
+    gray = cv2.cvtColor(imagem_np, cv2.COLOR_RGB2GRAY)
+    
+    # Criar objeto CLAHE: clipLimit=2.0 (evita ruído), tileGridSize=(8,8) (análise regional)
+    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
+    img_equalizada = clahe.apply(gray)
+    
+    # Retornar em RGB para compatibilidade com a rede neural
+    return cv2.cvtColor(img_equalizada, cv2.COLOR_GRAY2RGB)
+
+def preparar_imagem_ia(img_pil):
+    """Pipeline completo de tratamento de dados antes da inferência"""
+    img_np = np.array(img_pil)
+    
+    # 1. Tratamento de iluminação (Foco Comercial)
+    img_tratada = aplicar_clahe(img_np)
+    
+    # 2. Redimensionamento para o padrão de treino (128x128)
+    img_res = cv2.resize(img_tratada, (128, 128))
+    
+    # 3. Normalização de pixels (0 a 1)
+    img_final = img_res / 255.0
+    
+    # Expandir dimensão para (1, 128, 128, 3)
+    return np.expand_dims(img_final, axis=0), img_tratada
+
+# --- FUNÇÕES DE LÓGICA DE NEGÓCIO ---
+
 def init_db():
-    conn = sqlite3.connect(str(DB_PATH))
-    cursor = conn.cursor()
-    # Tabela principal
-    cursor.execute('''CREATE TABLE IF NOT EXISTS pesagens 
-                     (id INTEGER PRIMARY KEY AUTOINCREMENT, 
-                      brinco_id TEXT, data TEXT, peso REAL, foto_nome TEXT)''')
-    
-    # Migração automática para garantir que a coluna de fotos exista
-    cursor.execute("PRAGMA table_info(pesagens)")
-    colunas = [col[1] for col in cursor.fetchall()]
-    if 'foto_nome' not in colunas:
-        cursor.execute("ALTER TABLE pesagens ADD COLUMN foto_nome TEXT DEFAULT 'sem_foto.jpg'")
-    
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute('''CREATE TABLE IF NOT EXISTS pesagens 
+                 (id INTEGER PRIMARY KEY AUTOINCREMENT, 
+                  brinco_id TEXT, 
+                  data TEXT, 
+                  peso_estimado REAL,
+                  caminho_foto TEXT)''')
     conn.commit()
     conn.close()
 
-# --- CARREGAMENTO DE INTELIGÊNCIA ARTIFICIAL ---
 @st.cache_resource
-def load_resources():
-    yolo = YOLO('yolov8n.pt')
+def load_model_ia():
     try:
-        weight_model = tf.keras.models.load_model(str(MODEL_PATH), compile=False)
+        model = tf.keras.models.load_model(MODEL_PATH, compile=False)
+        model.compile(optimizer='adam', loss='mae')
+        return model
     except Exception as e:
-        st.error(f"Erro ao carregar modelo .h5: {e}")
-        weight_model = None
-    return yolo, weight_model
+        st.error(f"Erro Crítico: Modelo não encontrado em {MODEL_PATH}")
+        return None
 
-# --- PIPELINE DE VISÃO COMPUTACIONAL ---
-def processar_biometria(img_pil, _yolo):
-    img_np = np.array(img_pil)
-    results = _yolo(img_np, verbose=False, conf=0.3)
-    
-    detectado = False
-    for r in results:
-        for box in r.boxes:
-            if int(box.cls) == 19: # Classe 'cow' no COCO dataset
-                x1, y1, x2, y2 = map(int, box.xyxy[0])
-                
-                # Recorte com margem de 10% para escala
-                w, h = x2 - x1, y2 - y1
-                pw, ph = int(w * 0.1), int(h * 0.1)
-                img_pil = img_pil.crop((
-                    max(0, x1 - pw), max(0, y1 - ph), 
-                    min(img_pil.width, x2 + pw), min(img_pil.height, y2 + ph)
-                ))
-                detectado = True
-                break
-                
-    # Filtro Morfológico CLAHE
-    img_np = np.array(img_pil)
-    gray = cv2.cvtColor(img_np, cv2.COLOR_RGB2GRAY)
-    clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8,8))
-    res = clahe.apply(gray)
-    final = cv2.cvtColor(res, cv2.COLOR_GRAY2RGB) # Correção COLOR_
-    return final, detectado
+def calcular_gmd(brinco_id, peso_atual):
+    """Calcula Ganho Médio Diário comparando com o histórico do brinco"""
+    conn = sqlite3.connect(DB_PATH)
+    query = "SELECT data, peso_estimado FROM pesagens WHERE brinco_id = ? ORDER BY id DESC LIMIT 1"
+    df_ant = pd.read_sql_query(query, conn, params=(brinco_id,))
+    conn.close()
 
-# --- INTERFACE DO USUÁRIO (STREAMLIT) ---
-st.set_page_config(page_title="Rayvora Vision Pro", layout="wide", page_icon="🐂")
+    if not df_ant.empty:
+        peso_ant = df_ant['peso_estimado'].values[0]
+        data_ant = datetime.strptime(df_ant['data'].values[0], "%d/%m/%Y %H:%M:%S")
+        hoje = datetime.now()
+        
+        dias = (hoje - data_ant).days
+        if dias <= 0: dias = 1 # Evita erro matemático se pesado no mesmo dia
+        
+        gmd = (peso_atual - peso_ant) / dias
+        return gmd, dias, peso_ant
+    return None, None, None
+
+# --- INTERFACE DO USUÁRIO (UI) ---
+
+st.set_page_config(page_title="Rayvora Vision v2.0", layout="wide", page_icon="🐄")
 init_db()
-yolo_net, weight_net = load_resources()
 
-st.title("🐂 Rayvora Vision: Gestão Inteligente de Rebanho")
+st.title("🐄 Rayvora Vision: Inteligência Bovina")
+st.markdown("Sistema de pesagem visual com correção de iluminação dinâmica.")
 
-tabs = st.tabs(["🚀 Pesagem Direta", "📊 Dashboard", "📦 Data Hub"])
+menu = ["🏠 Início & Pesagem", "📊 Histórico & Analytics"]
+escolha = st.sidebar.selectbox("Navegação Principal", menu)
 
-# ABA 1: OPERAÇÃO
-with tabs[0]:
-    c1, c2 = st.columns([1, 1])
-    with c1:
-        st.subheader("Entrada de Dados")
-        id_animal = st.text_input("Identificação do Brinco:", "BOI_")
-        arquivo = st.file_uploader("Capturar ou Carregar Foto", type=['jpg', 'jpeg', 'png'])
+if escolha == "🏠 Início & Pesagem":
+    st.header("⚖️ Nova Estimativa de Peso")
+    
+    col_ctrl, col_orig, col_ia = st.columns([1, 1, 1])
+    
+    with col_ctrl:
+        brinco = st.text_input("Identificação (Brinco):", placeholder="Ex: BOI_001")
+        foto = st.file_uploader("Carregar Imagem (Vista Traseira)", type=['jpg', 'jpeg', 'png'])
         
-    if arquivo:
-        imagem_original = Image.open(arquivo).convert('RGB')
-        c1.image(imagem_original, caption="Imagem Original", use_container_width=True)
+    if foto is not None:
+        img_original = Image.open(foto).convert('RGB')
         
-        if st.button("🚀 Executar Pesagem por IA"):
-            with st.spinner("Analisando morfologia..."):
-                img_final, achou = processar_biometria(imagem_original, yolo_net)
+        with col_orig:
+            st.image(img_original, caption="Imagem Original (Campo)", use_container_width=True)
+        
+        if st.button("🚀 Processar Pesagem Inteligente"):
+            with st.spinner('Otimizando imagem e consultando IA...'):
+                # Pipeline de Visão
+                img_pronta, img_viz = preparar_imagem_ia(img_original)
                 
-                if not achou:
-                    st.warning("⚠️ Bovino não detectado com clareza. Tente outro ângulo.")
-                else:
-                    c2.subheader("Resultado da Análise")
-                    c2.image(img_final, caption="Segmentação Biométrica", use_container_width=True)
+                # Exibir para auditoria o que a IA está analisando
+                with col_ia:
+                    st.image(img_viz, caption="Filtro CLAHE (Detecção de Contorno)", use_container_width=True)
+                
+                # Inferência
+                model = load_model_ia()
+                if model:
+                    peso_final = float(model.predict(img_pronta)[0][0])
                     
-                    if weight_net:
-                        # Inferência de Peso
-                        input_tensor = cv2.resize(img_final, (128, 128)) / 255.0
-                        input_tensor = np.expand_dims(input_tensor, axis=0)
-                        predicao = weight_net.predict(input_tensor, verbose=False)[0][0]
+                    # Filtro de Validação de Peso
+                    if peso_final < 50 or peso_final > 1500:
+                        st.error(f"❌ Erro de Validação: Peso estimado ({peso_final:.2f}kg) fora da faixa bovina.")
+                    else:
+                        # Cálculo GMD
+                        gmd, dias, peso_ant = calcular_gmd(brinco, peso_final)
                         
-                        # Registro
+                        # Persistência
                         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                        nome_foto = f"{id_animal}_{timestamp}.jpg"
-                        imagem_original.save(IMG_DIR / nome_foto)
+                        nome_foto = f"{brinco}_{timestamp}.jpg"
+                        img_original.save(os.path.join(IMG_SAVE_PATH, nome_foto))
                         
-                        conn = sqlite3.connect(str(DB_PATH))
-                        conn.execute("INSERT INTO pesagens (brinco_id, data, peso, foto_nome) VALUES (?,?,?,?)",
-                                     (id_animal, datetime.now().strftime("%d/%m/%Y %H:%M"), predicao, nome_foto))
+                        conn = sqlite3.connect(DB_PATH)
+                        c = conn.cursor()
+                        agora = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+                        c.execute("INSERT INTO pesagens (brinco_id, data, peso_estimado, caminho_foto) VALUES (?, ?, ?, ?)", 
+                                  (brinco, agora, peso_final, nome_foto))
                         conn.commit()
                         conn.close()
-                        
-                        c2.success(f"Peso Estimado: {predicao:.2f} kg")
+
+                        # Feedback Visual
                         st.balloons()
+                        st.success(f"✅ Pesagem registrada: {peso_final:.2f} kg")
+                        
+                        if gmd is not None:
+                            m1, m2 = st.columns(2)
+                            m1.metric("GMD (Ganho Médio Diário)", f"{gmd:.3f} kg/dia", delta=f"{peso_final - peso_ant:.2f} kg")
+                            m2.info(f"Intervalo desde o último manejo: {dias} dias.")
 
-# ABA 2: ANALYTICS
-with tabs[1]:
-    st.subheader("Histórico de Crescimento")
-    conn = sqlite3.connect(str(DB_PATH))
-    df = pd.read_sql("SELECT * FROM pesagens", conn)
-    conn.close()
+elif escolha == "📊 Histórico & Analytics":
+    st.header("📈 Dashboard de Desempenho do Rebanho")
     
-    if not df.empty:
-        df['data'] = pd.to_datetime(df['data'], dayfirst=True)
-        animal_sel = st.selectbox("Selecione o Animal para Análise:", df['brinco_id'].unique())
-        
-        df_filt = df[df['brinco_id'] == animal_sel].sort_values('data')
-        fig = px.line(df_filt, x='data', y='peso', markers=True, title=f"Evolução de Biomassa: {animal_sel}")
-        st.plotly_chart(fig, use_container_width=True)
-        st.table(df_filt[['data', 'peso']].tail(5))
-    else:
-        st.info("Aguardando os primeiros registros de campo.")
+    if os.path.exists(DB_PATH):
+        conn = sqlite3.connect(DB_PATH)
+        df = pd.read_sql_query("SELECT * FROM pesagens", conn)
+        conn.close()
 
-# ABA 3: DATA HUB (RETREINO)
-with tabs[2]:
-    st.subheader("📦 Repositório de Imagens para Refinamento")
-    st.write("Estas imagens e pesos serão usados para calibrar a precisão do modelo Rayvora.")
-    
-    conn = sqlite3.connect(str(DB_PATH))
-    registros = pd.read_sql("SELECT * FROM pesagens ORDER BY id DESC LIMIT 12", conn)
-    conn.close()
-    
-    if not registros.empty:
-        for i in range(0, len(registros), 4):
-            cols = st.columns(4)
-            for j in range(4):
-                if i + j < len(registros):
-                    row = registros.iloc[i + j]
-                    path_img = IMG_DIR / str(row['foto_nome'])
-                    if path_img.exists():
-                        cols[j].image(str(path_img), caption=f"{row['brinco_id']}\n{row['peso']:.1f} kg")
+        if not df.empty:
+            df['data'] = pd.to_datetime(df['data'], dayfirst=True)
+            
+            # Filtro por animal específico
+            lista_bois = df['brinco_id'].unique()
+            boi_sel = st.selectbox("Selecione o Animal para Auditoria:", lista_bois)
+            
+            df_boi = df[df['brinco_id'] == boi_sel].sort_values('data')
+            
+            # Gráfico Interativo Plotly
+            fig = px.line(df_boi, x='data', y='peso_estimado', 
+                          title=f'Histórico de Ganho de Peso: {boi_sel}',
+                          markers=True, line_shape='spline',
+                          color_discrete_sequence=['#2ecc71'])
+            fig.update_layout(yaxis_title="Peso (kg)", xaxis_title="Data do Manejo")
+            st.plotly_chart(fig, use_container_width=True)
+            
+            # Métricas Totais
+            k1, k2, k3 = st.columns(3)
+            k1.metric("Peso na Primeira Pesagem", f"{df_boi['peso_estimado'].iloc[0]:.2f} kg")
+            k2.metric("Peso Atual (Última)", f"{df_boi['peso_estimado'].iloc[-1]:.2f} kg")
+            ganho_total = df_boi['peso_estimado'].iloc[-1] - df_boi['peso_estimado'].iloc[0]
+            k3.metric("Ganho Acumulado no Ciclo", f"{ganho_total:.2f} kg")
+
+            st.divider()
+            st.subheader("📁 Gerenciamento de Dados")
+            c_db, c_csv = st.columns(2)
+            with open(DB_PATH, "rb") as f:
+                c_db.download_button("📥 Baixar Base de Dados (.db)", f, "rayvora_database.db")
+            
+            csv = df_boi.to_csv(index=False).encode('utf-8')
+            c_csv.download_button("📥 Baixar Histórico deste Animal (.csv)", csv, f"historico_{boi_sel}.csv", "text/csv")
+        else:
+            st.info("O banco de dados ainda está vazio. Realize uma pesagem para iniciar o dashboard.")
     else:
-        st.warning("Galeria vazia.")
+        st.error("Banco de dados não localizado no servidor.")
