@@ -1,6 +1,5 @@
 streamlit
-tensorflow
-opencv-python
+tensorflow-cpu
+opencv-python-headless
 pillow
 pandas
-pyngrok
