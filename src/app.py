@@ -8,161 +8,204 @@ from datetime import datetime
 import pandas as pd
 import os
 
-# --- CONFIGURAÇÕES DE CAMINHO ---
-# No Streamlit Cloud, os caminhos são relativos à raiz do repositório
+# ==============================
+# CONFIG
+# ==============================
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-# O banco de dados e as fotos ficam na estrutura do projeto
 DB_PATH = os.path.join(BASE_DIR, 'monitoramento_bois.db')
 IMG_SAVE_PATH = os.path.join(BASE_DIR, 'fotos_pesagens')
-# Caminho para o modelo .h5 dentro da pasta 'models' (um nível acima de 'src')
 MODEL_PATH = os.path.join(BASE_DIR, '..', 'models', 'modelo_peso_bois.h5')
 
-# Garantir que a pasta de fotos existe no servidor
-if not os.path.exists(IMG_SAVE_PATH):
-    os.makedirs(IMG_SAVE_PATH)
+os.makedirs(IMG_SAVE_PATH, exist_ok=True)
 
+# ==============================
+# DATABASE
+# ==============================
 def init_db():
-    """Cria o banco de dados e a tabela se não existirem"""
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
-    c.execute('''CREATE TABLE IF NOT EXISTS pesagens 
-                 (id INTEGER PRIMARY KEY AUTOINCREMENT, 
-                  brinco_id TEXT, 
-                  data TEXT, 
-                  peso_estimado REAL,
-                  caminho_foto TEXT)''')
+
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS pesagens (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            brinco_id TEXT,
+            data TEXT,
+            peso_estimado REAL,
+            confianca REAL,
+            erro REAL,
+            caminho_foto TEXT
+        )
+    ''')
+
+    c.execute("CREATE INDEX IF NOT EXISTS idx_brinco ON pesagens(brinco_id)")
+
     conn.commit()
     conn.close()
 
+# ==============================
+# MODEL
+# ==============================
 @st.cache_resource
-def load_model_ia():
-    """Carrega o modelo Keras de forma otimizada para o Streamlit"""
-    try:
-        model = tf.keras.models.load_model(MODEL_PATH, compile=False)
-        model.compile(optimizer='adam', loss='mae')
-        return model
-    except Exception as e:
-        st.error(f"Erro ao carregar o arquivo do modelo: {e}")
-        return None
+def load_model():
+    model = tf.keras.models.load_model(MODEL_PATH, compile=False)
+    model.compile(optimizer='adam', loss='mae')
+    return model
 
-def verificar_se_e_boi(img_input, modelo):
-    """
-    Filtro de consistência: Se o peso estimado for absurdo (fora de 50-1500kg),
-    o sistema alerta que a imagem pode não ser de um bovino válido.
-    """
-    pred = modelo.predict(img_input)
-    peso = float(pred[0][0])
-    # Critério técnico para gado de corte adulto
-    if peso < 50 or peso > 1500:
-        return False, peso
-    return True, peso
+# ==============================
+# IMAGE PROCESSING (PDI REAL)
+# ==============================
+def preprocess_image(img):
+    img = np.array(img)
 
-# --- INTERFACE DO USUÁRIO (UI) ---
-st.set_page_config(page_title="Projeto Integrador - UFSC", layout="wide", page_icon="🐂")
+    # Resize
+    img = cv2.resize(img, (128, 128))
+
+    # Converter para LAB
+    lab = cv2.cvtColor(img, cv2.COLOR_RGB2LAB)
+    l, a, b = cv2.split(lab)
+
+    # CLAHE (contraste adaptativo)
+    clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8,8))
+    cl = clahe.apply(l)
+
+    # Merge
+    limg = cv2.merge((cl,a,b))
+    final = cv2.cvtColor(limg, cv2.COLOR_LAB2RGB)
+
+    # Normalização
+    final = final / 255.0
+
+    return final
+
+# ==============================
+# PRECISION MODE (MULTI INFERENCE)
+# ==============================
+def predict_with_confidence(model, img, n=10):
+    preds = []
+
+    for _ in range(n):
+        # pequena variação (robustez)
+        noise = np.random.normal(0, 0.01, img.shape)
+        img_noisy = np.clip(img + noise, 0, 1)
+
+        inp = np.expand_dims(img_noisy, axis=0)
+        pred = model.predict(inp, verbose=0)[0][0]
+        preds.append(pred)
+
+    mean = np.mean(preds)
+    std = np.std(preds)
+
+    # Confiança baseada na variabilidade
+    confidence = max(0, 100 - (std * 100))
+
+    # Margem de erro
+    error = std * 2
+
+    return float(mean), float(confidence), float(error)
+
+# ==============================
+# VALIDATION
+# ==============================
+def validar_peso(peso):
+    return 50 <= peso <= 1500
+
+# ==============================
+# UI
+# ==============================
+st.set_page_config(page_title="Rayvora Vision Pro", layout="wide")
 init_db()
 
-st.title("🐂 Monitoramento de Peso Bovino via IA")
-st.markdown("Solução de Visão Computacional desenvolvida para o **Projeto Integrador - UFSC Araranguá**")
+st.title("🐂 Rayvora Vision Pro")
+st.markdown("Sistema Inteligente de Estimativa de Peso Bovino")
 
-menu = ["Nova Pesagem", "Histórico e Auditoria"]
-escolha = st.sidebar.selectbox("Navegação", menu)
+menu = ["Nova Pesagem", "Histórico"]
+escolha = st.sidebar.selectbox("Menu", menu)
 
+# ==============================
+# NOVA PESAGEM
+# ==============================
 if escolha == "Nova Pesagem":
-    st.header("⚖️ Realizar Nova Estimativa")
-    
-    col_input, col_view = st.columns([1, 1])
-    
-    with col_input:
-        brinco = st.text_input("Identificação do Animal (Brinco):", "BOI_")
-        foto = st.file_uploader("Selecione a foto (Vista Traseira/Back View)", type=['jpg', 'jpeg', 'png'])
-    
-    if foto is not None:
-        img_original = Image.open(foto).convert('RGB')
-        with col_view:
-            st.image(img_original, caption="Imagem carregada para análise", width=400)
-        
-        if st.button("🚀 Calcular Peso"):
-            with st.spinner('Aguarde, a IA está processando os dados biométricos...'):
-                model = load_model_ia()
-                
-                if model:
-                    # Pré-processamento conforme o treinamento (128x128)
-                    img_arr = np.array(img_original)
-                    img_res = cv2.resize(img_arr, (128, 128)) / 255.0
-                    img_input = np.expand_dims(img_res, axis=0)
-                    
-                    # Predição e Validação pelo Filtro
-                    valido, peso_final = verificar_se_e_boi(img_input, model)
-                    
-                    if not valido:
-                        st.error(f"❌ Imagem Rejeitada: O peso estimado de {peso_final:.2f}kg é inconsistente para um bovino.")
-                    else:
-                        # 1. Salvar Foto para Auditoria futura
-                        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                        nome_arq_foto = f"{brinco}_{timestamp}.jpg"
-                        caminho_final_foto = os.path.join(IMG_SAVE_PATH, nome_arq_foto)
-                        img_original.save(caminho_final_foto)
-                        
-                        # 2. Registrar no Banco de Dados SQLite
-                        conn = sqlite3.connect(DB_PATH)
-                        c = conn.cursor()
-                        agora = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
-                        c.execute("INSERT INTO pesagens (brinco_id, data, peso_estimado, caminho_foto) VALUES (?, ?, ?, ?)", 
-                                  (brinco, agora, peso_final, nome_arq_foto))
-                        conn.commit()
-                        conn.close()
-                        
-                        st.success("✅ Pesagem registrada com sucesso!")
-                        st.metric(label="Peso Estimado", value=f"{peso_final:.2f} kg")
 
-elif escolha == "Histórico e Auditoria":
-    st.header("📈 Histórico de Registros")
-    
-    if os.path.exists(DB_PATH):
-        conn = sqlite3.connect(DB_PATH)
-        df = pd.read_sql_query("SELECT id, brinco_id, data, peso_estimado, caminho_foto FROM pesagens ORDER BY id DESC", conn)
-        conn.close()
-        
-        if not df.empty:
-            # Exibição da tabela principal
-            st.dataframe(df[['id', 'brinco_id', 'data', 'peso_estimado']], use_container_width=True)
-            
-            st.divider()
-            st.subheader("🔍 Auditoria Visual e Download")
-            
-            id_audit = st.selectbox("Escolha o ID da pesagem para ver a evidência:", df['id'])
-            
-            # Recuperar dados da imagem selecionada
-            linha = df[df['id'] == id_audit]
-            nome_da_foto = linha['caminho_foto'].values[0]
-            caminho_foto_audit = os.path.join(IMG_SAVE_PATH, nome_da_foto)
-            
-            if os.path.exists(caminho_foto_audit):
-                st.image(Image.open(caminho_foto_audit), caption=f"Evidência da Pesagem #{id_audit}", width=500)
-                
-                # Botão de download da imagem
-                with open(caminho_foto_audit, "rb") as img_file:
-                    st.download_button(
-                        label="📥 Baixar Foto de Auditoria",
-                        data=img_file,
-                        file_name=nome_da_foto,
-                        mime="image/jpeg"
-                    )
-            else:
-                st.warning("O arquivo de imagem foi removido ou não existe no servidor.")
-            
-            # --- SEÇÃO DE EXPORTAÇÃO DO BANCO DE DADOS ---
-            st.divider()
-            st.subheader("📦 Exportar Dados do Sistema")
-            if os.path.exists(DB_PATH):
-                with open(DB_PATH, "rb") as f:
-                    st.download_button(
-                        label="📥 Baixar Banco de Dados (.db)",
-                        data=f,
-                        file_name="monitoramento_bois.db",
-                        mime="application/x-sqlite3"
-                    )
-        else:
-            st.info("Nenhuma pesagem foi encontrada no banco de dados.")
+    col1, col2 = st.columns(2)
+
+    with col1:
+        brinco = st.text_input("Brinco do animal", "BOI_")
+        foto = st.file_uploader("Upload da imagem", type=["jpg", "png", "jpeg"])
+
+    if foto:
+        img = Image.open(foto).convert("RGB")
+
+        with col2:
+            st.image(img, caption="Imagem carregada", width=400)
+
+        if st.button("🚀 Calcular Peso (Alta Precisão)"):
+            with st.spinner("Processando com múltiplas inferências..."):
+
+                model = load_model()
+                processed = preprocess_image(img)
+
+                peso, conf, erro = predict_with_confidence(model, processed)
+
+                if not validar_peso(peso):
+                    st.error("Imagem inválida ou fora do padrão bovino")
+                else:
+                    # salvar imagem
+                    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                    nome_img = f"{brinco}_{timestamp}.jpg"
+                    path_img = os.path.join(IMG_SAVE_PATH, nome_img)
+                    img.save(path_img)
+
+                    # salvar DB
+                    conn = sqlite3.connect(DB_PATH)
+                    c = conn.cursor()
+
+                    data = datetime.now().strftime("%d/%m/%Y %H:%M")
+
+                    c.execute("""
+                        INSERT INTO pesagens 
+                        (brinco_id, data, peso_estimado, confianca, erro, caminho_foto)
+                        VALUES (?, ?, ?, ?, ?, ?)
+                    """, (brinco, data, peso, conf, erro, nome_img))
+
+                    conn.commit()
+                    conn.close()
+
+                    # RESULTADO
+                    st.success("Pesagem registrada!")
+
+                    colA, colB, colC = st.columns(3)
+
+                    colA.metric("Peso", f"{peso:.2f} kg")
+                    colB.metric("Confiança", f"{conf:.1f}%")
+                    colC.metric("Margem de erro", f"±{erro:.2f} kg")
+
+# ==============================
+# HISTÓRICO
+# ==============================
+elif escolha == "Histórico":
+
+    conn = sqlite3.connect(DB_PATH)
+    df = pd.read_sql_query("SELECT * FROM pesagens ORDER BY id DESC", conn)
+    conn.close()
+
+    if not df.empty:
+        st.dataframe(df, use_container_width=True)
+
+        st.divider()
+        st.subheader("Auditoria")
+
+        selected_id = st.selectbox("Selecionar ID", df['id'])
+
+        row = df[df['id'] == selected_id].iloc[0]
+
+        img_path = os.path.join(IMG_SAVE_PATH, row['caminho_foto'])
+
+        if os.path.exists(img_path):
+            st.image(img_path, width=500)
+
+        st.write(f"Peso: {row['peso_estimado']:.2f} kg")
+        st.write(f"Confiança: {row['confianca']:.2f}%")
+        st.write(f"Erro: ±{row['erro']:.2f} kg")
+
     else:
-        st.error("Erro: Banco de dados não inicializado.")
+        st.info("Sem registros ainda.")
