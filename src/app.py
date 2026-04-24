@@ -7,7 +7,6 @@ import sqlite3
 from datetime import datetime
 import pandas as pd
 import os
-import matplotlib.pyplot as plt
 
 # ==============================
 # CONFIG
@@ -20,26 +19,38 @@ MODEL_PATH = os.path.join(BASE_DIR, '..', 'models', 'modelo_peso_bois.h5')
 os.makedirs(IMG_SAVE_PATH, exist_ok=True)
 
 # ==============================
-# DATABASE
+# DATABASE (COM MIGRAÇÃO)
 # ==============================
 def init_db():
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
 
+    # tabela base
     c.execute('''
         CREATE TABLE IF NOT EXISTS pesagens (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             brinco_id TEXT,
             data TEXT,
             peso_estimado REAL,
-            peso_real REAL,
-            confianca REAL,
-            erro REAL,
             caminho_foto TEXT
         )
     ''')
 
+    # função para adicionar colunas se não existirem
+    def add_column_if_not_exists(name, dtype):
+        c.execute("PRAGMA table_info(pesagens)")
+        columns = [col[1] for col in c.fetchall()]
+
+        if name not in columns:
+            c.execute(f"ALTER TABLE pesagens ADD COLUMN {name} {dtype}")
+
+    # novas colunas
+    add_column_if_not_exists("confianca", "REAL")
+    add_column_if_not_exists("erro", "REAL")
+
+    # índice
     c.execute("CREATE INDEX IF NOT EXISTS idx_brinco ON pesagens(brinco_id)")
+
     conn.commit()
     conn.close()
 
@@ -71,7 +82,7 @@ def preprocess_image(img):
     return final / 255.0
 
 # ==============================
-# CONFIDENCE FIXED
+# CONFIDENCE (CORRIGIDO)
 # ==============================
 def calculate_confidence(std, mean):
     if mean == 0:
@@ -79,6 +90,7 @@ def calculate_confidence(std, mean):
 
     coef_var = std / abs(mean)
     confidence = np.exp(-coef_var * 5) * 100
+
     return float(np.clip(confidence, 0, 100))
 
 # ==============================
@@ -116,9 +128,9 @@ st.set_page_config(page_title="Rayvora Vision Pro", layout="wide")
 init_db()
 
 st.title("🐂 Rayvora Vision Pro")
-st.markdown("Sistema Inteligente de Estimativa de Peso Bovino")
+st.markdown("Sistema Inteligente de Estimativa de Peso Bovino via IA")
 
-menu = ["Nova Pesagem", "Histórico", "Dashboard"]
+menu = ["Nova Pesagem", "Histórico"]
 escolha = st.sidebar.selectbox("Menu", menu)
 
 modo_mobile = st.sidebar.checkbox("Modo Mobile")
@@ -135,19 +147,18 @@ if escolha == "Nova Pesagem":
         col1, col2 = st.columns(2)
 
     with col1:
-        brinco = st.text_input("Brinco", "BOI_")
-        peso_real_input = st.number_input("Peso real (opcional)", min_value=0.0, step=1.0)
-        foto = st.file_uploader("Imagem", type=["jpg","png","jpeg"])
+        brinco = st.text_input("Brinco do animal", "BOI_")
+        foto = st.file_uploader("Imagem", type=["jpg", "jpeg", "png"])
 
     if foto:
         img = Image.open(foto).convert("RGB")
 
         with col2:
-            st.image(img, use_container_width=True)
+            st.image(img, width='stretch')
 
-        if st.button("🚀 Calcular Peso (Alta Precisão)", use_container_width=True):
+        if st.button("🚀 Calcular Peso (Alta Precisão)", width='stretch'):
 
-            with st.spinner("Processando..."):
+            with st.spinner("Processando imagem..."):
 
                 model = load_model()
                 processed = preprocess_image(img)
@@ -155,7 +166,7 @@ if escolha == "Nova Pesagem":
                 peso, conf, erro = predict_with_confidence(model, processed)
 
                 if not validar_peso(peso):
-                    st.error("Imagem inválida")
+                    st.error("Imagem inválida ou fora do padrão bovino")
                 else:
                     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                     nome_img = f"{brinco}_{timestamp}.jpg"
@@ -169,13 +180,12 @@ if escolha == "Nova Pesagem":
 
                     c.execute("""
                         INSERT INTO pesagens 
-                        (brinco_id, data, peso_estimado, peso_real, confianca, erro, caminho_foto)
-                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                        (brinco_id, data, peso_estimado, confianca, erro, caminho_foto)
+                        VALUES (?, ?, ?, ?, ?, ?)
                     """, (
                         brinco,
                         data,
                         peso,
-                        peso_real_input if peso_real_input > 0 else None,
                         conf,
                         erro,
                         nome_img
@@ -184,12 +194,12 @@ if escolha == "Nova Pesagem":
                     conn.commit()
                     conn.close()
 
-                    st.success("Pesagem registrada!")
+                    st.success("Pesagem registrada com sucesso!")
 
                     colA, colB, colC = st.columns(3)
                     colA.metric("Peso", f"{peso:.2f} kg")
                     colB.metric("Confiança", f"{conf:.1f}%")
-                    colC.metric("Erro", f"±{erro:.2f} kg")
+                    colC.metric("Margem de erro", f"±{erro:.2f} kg")
 
 # ==============================
 # HISTÓRICO
@@ -201,7 +211,7 @@ elif escolha == "Histórico":
     conn.close()
 
     if not df.empty:
-        st.dataframe(df, use_container_width=True)
+        st.dataframe(df, width='stretch')
 
         selected_id = st.selectbox("Selecionar ID", df['id'])
         row = df[df['id'] == selected_id].iloc[0]
@@ -215,41 +225,5 @@ elif escolha == "Histórico":
         st.write(f"Confiança: {row['confianca']:.2f}%")
         st.write(f"Erro: ±{row['erro']:.2f} kg")
 
-# ==============================
-# DASHBOARD
-# ==============================
-elif escolha == "Dashboard":
-
-    conn = sqlite3.connect(DB_PATH)
-    df = pd.read_sql_query("SELECT * FROM pesagens", conn)
-    conn.close()
-
-    df_valid = df.dropna(subset=['peso_real'])
-
-    if not df_valid.empty:
-
-        mae = np.mean(np.abs(df_valid['peso_real'] - df_valid['peso_estimado']))
-        rmse = np.sqrt(np.mean((df_valid['peso_real'] - df_valid['peso_estimado'])**2))
-
-        col1, col2 = st.columns(2)
-        col1.metric("MAE", f"{mae:.2f} kg")
-        col2.metric("RMSE", f"{rmse:.2f} kg")
-
-        st.subheader("IA vs Peso Real")
-
-        fig, ax = plt.subplots()
-
-        ax.scatter(df_valid['peso_real'], df_valid['peso_estimado'])
-
-        min_val = df_valid['peso_real'].min()
-        max_val = df_valid['peso_real'].max()
-
-        ax.plot([min_val, max_val], [min_val, max_val])
-
-        ax.set_xlabel("Peso Real")
-        ax.set_ylabel("Peso Estimado")
-
-        st.pyplot(fig)
-
     else:
-        st.info("Adicione pesos reais para gerar métricas.")
+        st.info("Nenhum registro encontrado.")
