@@ -52,12 +52,16 @@ def init_db():
 # ==============================
 @st.cache_resource
 def load_model():
-    model = tf.keras.models.load_model(MODEL_PATH, compile=False)
-    model.compile(optimizer='adam', loss='mae')
-    return model
+    try:
+        model = tf.keras.models.load_model(MODEL_PATH, compile=False)
+        model.compile(optimizer='adam', loss='mae')
+        return model
+    except Exception as e:
+        st.error(f"Erro ao carregar modelo: {e}")
+        return None
 
 # ==============================
-# IMAGE PROCESSING
+# IMAGE PROCESSING (PDI)
 # ==============================
 def preprocess_image(img):
     img = np.array(img)
@@ -66,11 +70,13 @@ def preprocess_image(img):
     lab = cv2.cvtColor(img, cv2.COLOR_RGB2LAB)
     l, a, b = cv2.split(lab)
 
-    clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8,8))
+    clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
     cl = clahe.apply(l)
 
-    limg = cv2.merge((cl,a,b))
+    limg = cv2.merge((cl, a, b))
     img = cv2.cvtColor(limg, cv2.COLOR_LAB2RGB)
+
+    img = cv2.GaussianBlur(img, (3, 3), 0)
 
     return img / 255.0
 
@@ -87,7 +93,7 @@ def calculate_confidence(std, mean):
     return float(np.clip(confidence, 0, 100))
 
 # ==============================
-# MULTI-INFERENCE (CORRIGIDO)
+# MULTI-INFERENCE (ESCALA CORRETA)
 # ==============================
 def predict_with_confidence(model, img, n=12):
     preds = []
@@ -100,9 +106,9 @@ def predict_with_confidence(model, img, n=12):
         pred = model.predict(inp, verbose=0)[0][0]
         preds.append(pred)
 
-    # 🔥 CORREÇÃO DE ESCALA
-    mean = np.mean(preds) * 1000
-    std = np.std(preds) * 1000
+    # ⚠️ SEM multiplicação por 1000
+    mean = np.mean(preds)
+    std = np.std(preds)
 
     confidence = calculate_confidence(std, mean)
     error = std * 2
@@ -146,11 +152,14 @@ if escolha == "Nova Pesagem":
 
         if st.button("🚀 Calcular Peso"):
 
-            with st.spinner("Processando..."):
+            with st.spinner("IA analisando imagem..."):
 
                 model = load_model()
-                processed = preprocess_image(img)
 
+                if model is None:
+                    st.stop()
+
+                processed = preprocess_image(img)
                 peso, conf, erro = predict_with_confidence(model, processed)
 
                 if not validar_peso(peso):
@@ -182,12 +191,12 @@ if escolha == "Nova Pesagem":
                     conn.commit()
                     conn.close()
 
-                    st.success("Pesagem registrada!")
+                    st.success("Pesagem registrada com sucesso!")
 
                     colA, colB, colC = st.columns(3)
                     colA.metric("Peso", f"{peso:.2f} kg")
                     colB.metric("Confiança", f"{conf:.1f}%")
-                    colC.metric("Erro", f"±{erro:.2f} kg")
+                    colC.metric("Margem de erro", f"±{erro:.2f} kg")
 
 # ==============================
 # HISTÓRICO
