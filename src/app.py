@@ -14,12 +14,12 @@ import os
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE_DIR, 'monitoramento_bois.db')
 IMG_SAVE_PATH = os.path.join(BASE_DIR, 'fotos_pesagens')
-MODEL_PATH = os.path.join(BASE_DIR, '..', 'models', 'modelo_v2.h5')  # pronto pro v2
+MODEL_PATH = os.path.join(BASE_DIR, '..', 'models', 'modelo_v2.h5')
 
 os.makedirs(IMG_SAVE_PATH, exist_ok=True)
 
 # ==============================
-# DATABASE (COM MIGRAÇÃO SEGURA)
+# DATABASE
 # ==============================
 def init_db():
     conn = sqlite3.connect(DB_PATH)
@@ -44,48 +44,38 @@ def init_db():
     add_column_if_not_exists("confianca", "REAL")
     add_column_if_not_exists("erro", "REAL")
 
-    c.execute("CREATE INDEX IF NOT EXISTS idx_brinco ON pesagens(brinco_id)")
-
     conn.commit()
     conn.close()
 
 # ==============================
-# MODEL (CACHE + ROBUSTEZ)
+# MODEL
 # ==============================
 @st.cache_resource
 def load_model():
-    try:
-        model = tf.keras.models.load_model(MODEL_PATH, compile=False)
-        model.compile(optimizer='adam', loss='mae')
-        return model
-    except Exception as e:
-        st.error(f"Erro ao carregar modelo: {e}")
-        return None
+    model = tf.keras.models.load_model(MODEL_PATH, compile=False)
+    model.compile(optimizer='adam', loss='mae')
+    return model
 
 # ==============================
-# IMAGE PROCESSING (PDI AVANÇADO)
+# IMAGE PROCESSING
 # ==============================
 def preprocess_image(img):
     img = np.array(img)
     img = cv2.resize(img, (128, 128))
 
-    # CLAHE
     lab = cv2.cvtColor(img, cv2.COLOR_RGB2LAB)
     l, a, b = cv2.split(lab)
 
-    clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
+    clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8,8))
     cl = clahe.apply(l)
 
-    limg = cv2.merge((cl, a, b))
+    limg = cv2.merge((cl,a,b))
     img = cv2.cvtColor(limg, cv2.COLOR_LAB2RGB)
-
-    # leve suavização (remove ruído)
-    img = cv2.GaussianBlur(img, (3, 3), 0)
 
     return img / 255.0
 
 # ==============================
-# CONFIDENCE MELHORADA
+# CONFIDENCE
 # ==============================
 def calculate_confidence(std, mean):
     if mean == 0:
@@ -97,7 +87,7 @@ def calculate_confidence(std, mean):
     return float(np.clip(confidence, 0, 100))
 
 # ==============================
-# MULTI-INFERENCE (PRECISÃO MÁXIMA)
+# MULTI-INFERENCE (CORRIGIDO)
 # ==============================
 def predict_with_confidence(model, img, n=12):
     preds = []
@@ -110,8 +100,9 @@ def predict_with_confidence(model, img, n=12):
         pred = model.predict(inp, verbose=0)[0][0]
         preds.append(pred)
 
-    mean = np.mean(preds)
-    std = np.std(preds)
+    # 🔥 CORREÇÃO DE ESCALA
+    mean = np.mean(preds) * 1000
+    std = np.std(preds) * 1000
 
     confidence = calculate_confidence(std, mean)
     error = std * 2
@@ -119,7 +110,7 @@ def predict_with_confidence(model, img, n=12):
     return float(mean), float(confidence), float(error)
 
 # ==============================
-# VALIDAÇÃO
+# VALIDATION
 # ==============================
 def validar_peso(peso):
     return 50 <= peso <= 1500
@@ -135,18 +126,13 @@ st.markdown("Sistema Inteligente de Estimativa de Peso Bovino via IA")
 
 menu = ["Nova Pesagem", "Histórico"]
 escolha = st.sidebar.selectbox("Menu", menu)
-modo_mobile = st.sidebar.checkbox("Modo Mobile")
 
 # ==============================
 # NOVA PESAGEM
 # ==============================
 if escolha == "Nova Pesagem":
 
-    if modo_mobile:
-        col1 = st.container()
-        col2 = st.container()
-    else:
-        col1, col2 = st.columns(2)
+    col1, col2 = st.columns(2)
 
     with col1:
         brinco = st.text_input("Brinco do animal", "BOI_")
@@ -158,20 +144,17 @@ if escolha == "Nova Pesagem":
         with col2:
             st.image(img, width='stretch')
 
-        if st.button("🚀 Calcular Peso (Alta Precisão)", width='stretch'):
+        if st.button("🚀 Calcular Peso"):
 
-            with st.spinner("IA analisando características biométricas..."):
+            with st.spinner("Processando..."):
 
                 model = load_model()
-
-                if model is None:
-                    st.stop()
-
                 processed = preprocess_image(img)
+
                 peso, conf, erro = predict_with_confidence(model, processed)
 
                 if not validar_peso(peso):
-                    st.error("Imagem inválida ou fora do padrão bovino")
+                    st.error(f"Imagem inválida. Peso previsto: {peso:.2f} kg")
                 else:
                     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                     nome_img = f"{brinco}_{timestamp}.jpg"
@@ -199,12 +182,12 @@ if escolha == "Nova Pesagem":
                     conn.commit()
                     conn.close()
 
-                    st.success("Pesagem registrada com sucesso!")
+                    st.success("Pesagem registrada!")
 
                     colA, colB, colC = st.columns(3)
                     colA.metric("Peso", f"{peso:.2f} kg")
                     colB.metric("Confiança", f"{conf:.1f}%")
-                    colC.metric("Margem de erro", f"±{erro:.2f} kg")
+                    colC.metric("Erro", f"±{erro:.2f} kg")
 
 # ==============================
 # HISTÓRICO
