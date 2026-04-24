@@ -100,14 +100,20 @@ def predict_with_confidence(model, img, n=12):
         pred = model.predict(inp, verbose=0)[0][0]
         preds.append(pred)
 
-    # 🔥 MODELO NORMALIZADO → CONVERTER PARA KG
-    mean = np.mean(preds) * 1000
-    std = np.std(preds) * 1000
+    # ✅ SEM ESCALA
+    mean = np.mean(preds)
+    std = np.std(preds)
 
     confidence = calculate_confidence(std, mean)
     error = std * 2
 
     return float(mean), float(confidence), float(error)
+
+# ==============================
+# FORMATADOR PROFISSIONAL
+# ==============================
+def formatar_peso(peso):
+    return f"{peso:,.2f} kg".replace(",", ".")
 
 # ==============================
 # UI
@@ -147,7 +153,7 @@ if escolha == "Nova Pesagem":
 
                 peso, conf, erro = predict_with_confidence(model, processed)
 
-                # 🔥 SEM BLOQUEIO — SEMPRE MOSTRA RESULTADO
+                # salvar
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                 nome_img = f"{brinco}_{timestamp}.jpg"
                 path_img = os.path.join(IMG_SAVE_PATH, nome_img)
@@ -177,7 +183,7 @@ if escolha == "Nova Pesagem":
                 st.success("Pesagem registrada!")
 
                 colA, colB, colC = st.columns(3)
-                colA.metric("Peso", f"{peso:.2f} kg")
+                colA.metric("Peso", formatar_peso(peso))
                 colB.metric("Confiança", f"{conf:.1f}%")
                 colC.metric("Erro", f"±{erro:.2f} kg")
 
