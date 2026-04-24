@@ -52,16 +52,12 @@ def init_db():
 # ==============================
 @st.cache_resource
 def load_model():
-    try:
-        model = tf.keras.models.load_model(MODEL_PATH, compile=False)
-        model.compile(optimizer='adam', loss='mae')
-        return model
-    except Exception as e:
-        st.error(f"Erro ao carregar modelo: {e}")
-        return None
+    model = tf.keras.models.load_model(MODEL_PATH, compile=False)
+    model.compile(optimizer='adam', loss='mae')
+    return model
 
 # ==============================
-# IMAGE PROCESSING (PDI)
+# IMAGE PROCESSING
 # ==============================
 def preprocess_image(img):
     img = np.array(img)
@@ -70,13 +66,11 @@ def preprocess_image(img):
     lab = cv2.cvtColor(img, cv2.COLOR_RGB2LAB)
     l, a, b = cv2.split(lab)
 
-    clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
+    clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8,8))
     cl = clahe.apply(l)
 
-    limg = cv2.merge((cl, a, b))
+    limg = cv2.merge((cl,a,b))
     img = cv2.cvtColor(limg, cv2.COLOR_LAB2RGB)
-
-    img = cv2.GaussianBlur(img, (3, 3), 0)
 
     return img / 255.0
 
@@ -106,20 +100,14 @@ def predict_with_confidence(model, img, n=12):
         pred = model.predict(inp, verbose=0)[0][0]
         preds.append(pred)
 
-    # ⚠️ SEM multiplicação por 1000
-    mean = np.mean(preds)
-    std = np.std(preds)
+    # 🔥 MODELO NORMALIZADO → CONVERTER PARA KG
+    mean = np.mean(preds) * 1000
+    std = np.std(preds) * 1000
 
     confidence = calculate_confidence(std, mean)
     error = std * 2
 
     return float(mean), float(confidence), float(error)
-
-# ==============================
-# VALIDATION
-# ==============================
-def validar_peso(peso):
-    return 50 <= peso <= 1500
 
 # ==============================
 # UI
@@ -155,48 +143,43 @@ if escolha == "Nova Pesagem":
             with st.spinner("IA analisando imagem..."):
 
                 model = load_model()
-
-                if model is None:
-                    st.stop()
-
                 processed = preprocess_image(img)
+
                 peso, conf, erro = predict_with_confidence(model, processed)
 
-                if not validar_peso(peso):
-                    st.error(f"Imagem inválida. Peso previsto: {peso:.2f} kg")
-                else:
-                    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                    nome_img = f"{brinco}_{timestamp}.jpg"
-                    path_img = os.path.join(IMG_SAVE_PATH, nome_img)
-                    img.save(path_img)
+                # 🔥 SEM BLOQUEIO — SEMPRE MOSTRA RESULTADO
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                nome_img = f"{brinco}_{timestamp}.jpg"
+                path_img = os.path.join(IMG_SAVE_PATH, nome_img)
+                img.save(path_img)
 
-                    conn = sqlite3.connect(DB_PATH)
-                    c = conn.cursor()
+                conn = sqlite3.connect(DB_PATH)
+                c = conn.cursor()
 
-                    data = datetime.now().strftime("%d/%m/%Y %H:%M")
+                data = datetime.now().strftime("%d/%m/%Y %H:%M")
 
-                    c.execute("""
-                        INSERT INTO pesagens 
-                        (brinco_id, data, peso_estimado, confianca, erro, caminho_foto)
-                        VALUES (?, ?, ?, ?, ?, ?)
-                    """, (
-                        brinco,
-                        data,
-                        peso,
-                        conf,
-                        erro,
-                        nome_img
-                    ))
+                c.execute("""
+                    INSERT INTO pesagens 
+                    (brinco_id, data, peso_estimado, confianca, erro, caminho_foto)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                """, (
+                    brinco,
+                    data,
+                    peso,
+                    conf,
+                    erro,
+                    nome_img
+                ))
 
-                    conn.commit()
-                    conn.close()
+                conn.commit()
+                conn.close()
 
-                    st.success("Pesagem registrada com sucesso!")
+                st.success("Pesagem registrada!")
 
-                    colA, colB, colC = st.columns(3)
-                    colA.metric("Peso", f"{peso:.2f} kg")
-                    colB.metric("Confiança", f"{conf:.1f}%")
-                    colC.metric("Margem de erro", f"±{erro:.2f} kg")
+                colA, colB, colC = st.columns(3)
+                colA.metric("Peso", f"{peso:.2f} kg")
+                colB.metric("Confiança", f"{conf:.1f}%")
+                colC.metric("Erro", f"±{erro:.2f} kg")
 
 # ==============================
 # HISTÓRICO
@@ -209,18 +192,5 @@ elif escolha == "Histórico":
 
     if not df.empty:
         st.dataframe(df, width='stretch')
-
-        selected_id = st.selectbox("Selecionar ID", df['id'])
-        row = df[df['id'] == selected_id].iloc[0]
-
-        img_path = os.path.join(IMG_SAVE_PATH, row['caminho_foto'])
-
-        if os.path.exists(img_path):
-            st.image(img_path, width=500)
-
-        st.write(f"Peso: {row['peso_estimado']:.2f} kg")
-        st.write(f"Confiança: {row['confianca']:.2f}%")
-        st.write(f"Erro: ±{row['erro']:.2f} kg")
-
     else:
         st.info("Nenhum registro encontrado.")
