@@ -7,6 +7,7 @@ import sqlite3
 from datetime import datetime
 import pandas as pd
 import os
+import matplotlib.pyplot as plt
 
 # ==============================
 # CONFIG
@@ -31,6 +32,7 @@ def init_db():
             brinco_id TEXT,
             data TEXT,
             peso_estimado REAL,
+            peso_real REAL,
             confianca REAL,
             erro REAL,
             caminho_foto TEXT
@@ -38,7 +40,6 @@ def init_db():
     ''')
 
     c.execute("CREATE INDEX IF NOT EXISTS idx_brinco ON pesagens(brinco_id)")
-
     conn.commit()
     conn.close()
 
@@ -52,39 +53,41 @@ def load_model():
     return model
 
 # ==============================
-# IMAGE PROCESSING (PDI REAL)
+# IMAGE PROCESSING (CLAHE)
 # ==============================
 def preprocess_image(img):
     img = np.array(img)
-
-    # Resize
     img = cv2.resize(img, (128, 128))
 
-    # Converter para LAB
     lab = cv2.cvtColor(img, cv2.COLOR_RGB2LAB)
     l, a, b = cv2.split(lab)
 
-    # CLAHE (contraste adaptativo)
     clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8,8))
     cl = clahe.apply(l)
 
-    # Merge
     limg = cv2.merge((cl,a,b))
     final = cv2.cvtColor(limg, cv2.COLOR_LAB2RGB)
 
-    # Normalização
-    final = final / 255.0
-
-    return final
+    return final / 255.0
 
 # ==============================
-# PRECISION MODE (MULTI INFERENCE)
+# CONFIDENCE FIXED
+# ==============================
+def calculate_confidence(std, mean):
+    if mean == 0:
+        return 0.0
+
+    coef_var = std / abs(mean)
+    confidence = np.exp(-coef_var * 5) * 100
+    return float(np.clip(confidence, 0, 100))
+
+# ==============================
+# MULTI-INFERENCE
 # ==============================
 def predict_with_confidence(model, img, n=10):
     preds = []
 
     for _ in range(n):
-        # pequena variação (robustez)
         noise = np.random.normal(0, 0.01, img.shape)
         img_noisy = np.clip(img + noise, 0, 1)
 
@@ -95,10 +98,7 @@ def predict_with_confidence(model, img, n=10):
     mean = np.mean(preds)
     std = np.std(preds)
 
-    # Confiança baseada na variabilidade
-    confidence = max(0, 100 - (std * 100))
-
-    # Margem de erro
+    confidence = calculate_confidence(std, mean)
     error = std * 2
 
     return float(mean), float(confidence), float(error)
@@ -118,28 +118,36 @@ init_db()
 st.title("🐂 Rayvora Vision Pro")
 st.markdown("Sistema Inteligente de Estimativa de Peso Bovino")
 
-menu = ["Nova Pesagem", "Histórico"]
+menu = ["Nova Pesagem", "Histórico", "Dashboard"]
 escolha = st.sidebar.selectbox("Menu", menu)
+
+modo_mobile = st.sidebar.checkbox("Modo Mobile")
 
 # ==============================
 # NOVA PESAGEM
 # ==============================
 if escolha == "Nova Pesagem":
 
-    col1, col2 = st.columns(2)
+    if modo_mobile:
+        col1 = st.container()
+        col2 = st.container()
+    else:
+        col1, col2 = st.columns(2)
 
     with col1:
-        brinco = st.text_input("Brinco do animal", "BOI_")
-        foto = st.file_uploader("Upload da imagem", type=["jpg", "png", "jpeg"])
+        brinco = st.text_input("Brinco", "BOI_")
+        peso_real_input = st.number_input("Peso real (opcional)", min_value=0.0, step=1.0)
+        foto = st.file_uploader("Imagem", type=["jpg","png","jpeg"])
 
     if foto:
         img = Image.open(foto).convert("RGB")
 
         with col2:
-            st.image(img, caption="Imagem carregada", width=400)
+            st.image(img, use_container_width=True)
 
-        if st.button("🚀 Calcular Peso (Alta Precisão)"):
-            with st.spinner("Processando com múltiplas inferências..."):
+        if st.button("🚀 Calcular Peso (Alta Precisão)", use_container_width=True):
+
+            with st.spinner("Processando..."):
 
                 model = load_model()
                 processed = preprocess_image(img)
@@ -147,15 +155,13 @@ if escolha == "Nova Pesagem":
                 peso, conf, erro = predict_with_confidence(model, processed)
 
                 if not validar_peso(peso):
-                    st.error("Imagem inválida ou fora do padrão bovino")
+                    st.error("Imagem inválida")
                 else:
-                    # salvar imagem
                     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                     nome_img = f"{brinco}_{timestamp}.jpg"
                     path_img = os.path.join(IMG_SAVE_PATH, nome_img)
                     img.save(path_img)
 
-                    # salvar DB
                     conn = sqlite3.connect(DB_PATH)
                     c = conn.cursor()
 
@@ -163,21 +169,27 @@ if escolha == "Nova Pesagem":
 
                     c.execute("""
                         INSERT INTO pesagens 
-                        (brinco_id, data, peso_estimado, confianca, erro, caminho_foto)
-                        VALUES (?, ?, ?, ?, ?, ?)
-                    """, (brinco, data, peso, conf, erro, nome_img))
+                        (brinco_id, data, peso_estimado, peso_real, confianca, erro, caminho_foto)
+                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """, (
+                        brinco,
+                        data,
+                        peso,
+                        peso_real_input if peso_real_input > 0 else None,
+                        conf,
+                        erro,
+                        nome_img
+                    ))
 
                     conn.commit()
                     conn.close()
 
-                    # RESULTADO
                     st.success("Pesagem registrada!")
 
                     colA, colB, colC = st.columns(3)
-
                     colA.metric("Peso", f"{peso:.2f} kg")
                     colB.metric("Confiança", f"{conf:.1f}%")
-                    colC.metric("Margem de erro", f"±{erro:.2f} kg")
+                    colC.metric("Erro", f"±{erro:.2f} kg")
 
 # ==============================
 # HISTÓRICO
@@ -191,11 +203,7 @@ elif escolha == "Histórico":
     if not df.empty:
         st.dataframe(df, use_container_width=True)
 
-        st.divider()
-        st.subheader("Auditoria")
-
         selected_id = st.selectbox("Selecionar ID", df['id'])
-
         row = df[df['id'] == selected_id].iloc[0]
 
         img_path = os.path.join(IMG_SAVE_PATH, row['caminho_foto'])
@@ -207,5 +215,41 @@ elif escolha == "Histórico":
         st.write(f"Confiança: {row['confianca']:.2f}%")
         st.write(f"Erro: ±{row['erro']:.2f} kg")
 
+# ==============================
+# DASHBOARD
+# ==============================
+elif escolha == "Dashboard":
+
+    conn = sqlite3.connect(DB_PATH)
+    df = pd.read_sql_query("SELECT * FROM pesagens", conn)
+    conn.close()
+
+    df_valid = df.dropna(subset=['peso_real'])
+
+    if not df_valid.empty:
+
+        mae = np.mean(np.abs(df_valid['peso_real'] - df_valid['peso_estimado']))
+        rmse = np.sqrt(np.mean((df_valid['peso_real'] - df_valid['peso_estimado'])**2))
+
+        col1, col2 = st.columns(2)
+        col1.metric("MAE", f"{mae:.2f} kg")
+        col2.metric("RMSE", f"{rmse:.2f} kg")
+
+        st.subheader("IA vs Peso Real")
+
+        fig, ax = plt.subplots()
+
+        ax.scatter(df_valid['peso_real'], df_valid['peso_estimado'])
+
+        min_val = df_valid['peso_real'].min()
+        max_val = df_valid['peso_real'].max()
+
+        ax.plot([min_val, max_val], [min_val, max_val])
+
+        ax.set_xlabel("Peso Real")
+        ax.set_ylabel("Peso Estimado")
+
+        st.pyplot(fig)
+
     else:
-        st.info("Sem registros ainda.")
+        st.info("Adicione pesos reais para gerar métricas.")
