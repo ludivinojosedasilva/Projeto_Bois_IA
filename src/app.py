@@ -14,18 +14,17 @@ import os
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE_DIR, 'monitoramento_bois.db')
 IMG_SAVE_PATH = os.path.join(BASE_DIR, 'fotos_pesagens')
-MODEL_PATH = os.path.join(BASE_DIR, '..', 'models', 'modelo_peso_bois.h5')
+MODEL_PATH = os.path.join(BASE_DIR, '..', 'models', 'modelo_v2.h5')  # pronto pro v2
 
 os.makedirs(IMG_SAVE_PATH, exist_ok=True)
 
 # ==============================
-# DATABASE (COM MIGRAÇÃO)
+# DATABASE (COM MIGRAÇÃO SEGURA)
 # ==============================
 def init_db():
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
 
-    # tabela base
     c.execute('''
         CREATE TABLE IF NOT EXISTS pesagens (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -36,53 +35,57 @@ def init_db():
         )
     ''')
 
-    # função para adicionar colunas se não existirem
     def add_column_if_not_exists(name, dtype):
         c.execute("PRAGMA table_info(pesagens)")
         columns = [col[1] for col in c.fetchall()]
-
         if name not in columns:
             c.execute(f"ALTER TABLE pesagens ADD COLUMN {name} {dtype}")
 
-    # novas colunas
     add_column_if_not_exists("confianca", "REAL")
     add_column_if_not_exists("erro", "REAL")
 
-    # índice
     c.execute("CREATE INDEX IF NOT EXISTS idx_brinco ON pesagens(brinco_id)")
 
     conn.commit()
     conn.close()
 
 # ==============================
-# MODEL
+# MODEL (CACHE + ROBUSTEZ)
 # ==============================
 @st.cache_resource
 def load_model():
-    model = tf.keras.models.load_model(MODEL_PATH, compile=False)
-    model.compile(optimizer='adam', loss='mae')
-    return model
+    try:
+        model = tf.keras.models.load_model(MODEL_PATH, compile=False)
+        model.compile(optimizer='adam', loss='mae')
+        return model
+    except Exception as e:
+        st.error(f"Erro ao carregar modelo: {e}")
+        return None
 
 # ==============================
-# IMAGE PROCESSING (CLAHE)
+# IMAGE PROCESSING (PDI AVANÇADO)
 # ==============================
 def preprocess_image(img):
     img = np.array(img)
     img = cv2.resize(img, (128, 128))
 
+    # CLAHE
     lab = cv2.cvtColor(img, cv2.COLOR_RGB2LAB)
     l, a, b = cv2.split(lab)
 
-    clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8,8))
+    clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
     cl = clahe.apply(l)
 
-    limg = cv2.merge((cl,a,b))
-    final = cv2.cvtColor(limg, cv2.COLOR_LAB2RGB)
+    limg = cv2.merge((cl, a, b))
+    img = cv2.cvtColor(limg, cv2.COLOR_LAB2RGB)
 
-    return final / 255.0
+    # leve suavização (remove ruído)
+    img = cv2.GaussianBlur(img, (3, 3), 0)
+
+    return img / 255.0
 
 # ==============================
-# CONFIDENCE (CORRIGIDO)
+# CONFIDENCE MELHORADA
 # ==============================
 def calculate_confidence(std, mean):
     if mean == 0:
@@ -94,13 +97,13 @@ def calculate_confidence(std, mean):
     return float(np.clip(confidence, 0, 100))
 
 # ==============================
-# MULTI-INFERENCE
+# MULTI-INFERENCE (PRECISÃO MÁXIMA)
 # ==============================
-def predict_with_confidence(model, img, n=10):
+def predict_with_confidence(model, img, n=12):
     preds = []
 
     for _ in range(n):
-        noise = np.random.normal(0, 0.01, img.shape)
+        noise = np.random.normal(0, 0.008, img.shape)
         img_noisy = np.clip(img + noise, 0, 1)
 
         inp = np.expand_dims(img_noisy, axis=0)
@@ -116,7 +119,7 @@ def predict_with_confidence(model, img, n=10):
     return float(mean), float(confidence), float(error)
 
 # ==============================
-# VALIDATION
+# VALIDAÇÃO
 # ==============================
 def validar_peso(peso):
     return 50 <= peso <= 1500
@@ -132,7 +135,6 @@ st.markdown("Sistema Inteligente de Estimativa de Peso Bovino via IA")
 
 menu = ["Nova Pesagem", "Histórico"]
 escolha = st.sidebar.selectbox("Menu", menu)
-
 modo_mobile = st.sidebar.checkbox("Modo Mobile")
 
 # ==============================
@@ -158,11 +160,14 @@ if escolha == "Nova Pesagem":
 
         if st.button("🚀 Calcular Peso (Alta Precisão)", width='stretch'):
 
-            with st.spinner("Processando imagem..."):
+            with st.spinner("IA analisando características biométricas..."):
 
                 model = load_model()
-                processed = preprocess_image(img)
 
+                if model is None:
+                    st.stop()
+
+                processed = preprocess_image(img)
                 peso, conf, erro = predict_with_confidence(model, processed)
 
                 if not validar_peso(peso):
