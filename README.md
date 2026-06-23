@@ -1,63 +1,137 @@
-# 🐂 Rayvora - Monitoramento de Peso Bovino via IA
+**BovinoVision — Sistema de Análise da Condição Corporal de Bovinos**
 
-Este projeto utiliza **Visão Computacional** e **Deep Learning** para estimar o peso de gado de corte a partir de imagens da vista traseira (*back view*). Desenvolvido como parte do Projeto Integrador na **UFSC Araranguá**, a solução visa automatizar o monitoramento de peso, reduzindo o estresse do animal e otimizando a gestão da pecuária.
+Bem-vindo ao repositório do BovinoVision. Este README descreve de forma completa o que o projeto contém, as dependências usadas, como executar localmente, como gerar o build de produção e como configurar deploy automático via GitHub Actions para um servidor Linux com systemd.
+
+**Visão Geral**:
+- **Propósito**: Ferramenta web para avaliar condição corporal de bovinos, com interface React + backend Node/Express.
+- **Arquitetura**: SPA React (Vite) servido por um servidor Node que também implementa rotas de API e integrações (Firebase Admin, Supabase, serviços de email).
+
+**Estrutura do Projeto (resumo)**:
+- `src/` — código cliente React (componentes, estilos, assets).
+- `server.ts` — servidor Node/Express (entry server para dev e build server.cjs para produção).
+- `server/` — helpers de servidor (ex.: `emailService.ts`).
+- `lib/` — integrações (Firebase, Supabase, schemas).
+- `.github/workflows/` — workflow de CI/CD (deploy automático).
+- `dist/` — artefatos de produção gerados por `npm run build`.
+
+**Tecnologias e Dependências Principais**
+- Frontend: `react`, `react-dom`, `@vitejs/plugin-react`, `vite`.
+- Backend: `express`, `node` (via `server.ts`, empacotado com `esbuild`).
+- Autenticação / BaaS: `firebase`, `firebase-admin`, `@supabase/supabase-js`.
+- Utilitários: `zod` (validação), `nodemailer` (envio de email), `dotenv`.
+- Ferramentas de build: `vite`, `esbuild`, `tsx` (dev server), `typescript`.
+
+Confira o `package.json` para a lista completa de dependências e versões.
+
+**Scripts úteis (package.json)**
+- `npm run dev` — inicia o servidor em modo desenvolvimento usando `tsx server.ts`.
+- `npm run build` — executa `vite build` e empacota `server.ts` em `dist/server.cjs` com `esbuild`.
+- `npm run start` — executa `node dist/server.cjs` (assume que `dist` já foi gerado).
+- `npm run start:prod` — (helper) roda `npm run build && npm run start`.
+
+**Variáveis de ambiente**
+- Use um arquivo `.env` (não comitado) para configurar chaves e segredos:
+  - `PORT` — porta do servidor (padrão 3000)
+  - `FIREBASE_*` — credenciais do Firebase (conforme `lib/firebase-admin.ts`)
+  - `SUPABASE_URL` / `SUPABASE_KEY` — credenciais Supabase
+  - `SMTP_*` — credenciais do servidor SMTP para `nodemailer`
+  - Outras chaves específicas usadas no código (ver `lib` e `server.ts`).
+
+**Executar localmente (desenvolvimento)**
+1. Instale Node.js LTS (recomendado) e git.
+2. No terminal, na raiz do projeto:
+```
+cd "C:\Users\Pedro\Downloads\BovinoVision AI-System"
+npm install
+```
+3. Crie seu `.env` com as variáveis necessárias (baseie-se em `.env.example` se existir).
+4. Inicie em modo dev:
+```
+npm run dev
+```
+5. Abra `http://localhost:3000` no navegador.
+
+**Build e execução em produção (local ou servidor)**
+1. Gerar build e empacotar o server:
+```
+npm run build
+```
+2. Iniciar servidor de produção (assume `node` instalado no host):
+```
+npm run start
+```
+Ou execute o helper criado (PowerShell / CMD):
+```
+.\run-prod.ps1    # PowerShell
+run-prod.bat      # CMD
+```
+
+**Deploy automático via GitHub Actions (fluxo usado aqui)**
+- O workflow empacota `dist/`, copia para o servidor via SCP usando uma chave SSH armazenada em GitHub Secrets, descompacta, instala dependências de produção e reinicia o serviço `systemd` (`bovinovision`).
+
+Secrets GitHub recomendados (Repository → Settings → Secrets → Actions):
+- `SSH_PRIVATE_KEY` — chave privada criada para o pipeline (não compartilhe).
+- `SSH_HOST` — host ou IP do servidor.
+- `SSH_USER` — usuário SSH no servidor.
+- `SSH_PORT` — opcional (22 por padrão).
+- `REMOTE_DIR` — diretório remoto onde os arquivos serão extraídos (ex.: `/var/www/bovino`).
+
+**Configuração do servidor (ex.: Ubuntu VPS)**
+1. Preparar diretório remoto e Node:
+```
+sudo mkdir -p /var/www/bovino
+sudo chown -R $USER:$USER /var/www/bovino
+curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+sudo apt-get install -y nodejs
+```
+2. Adicionar chave pública (`~/.ssh/authorized_keys`) para o usuário do deploy.
+3. Criar unit `systemd` (exemplo):
+```
+sudo tee /etc/systemd/system/bovinovision.service > /dev/null <<'EOF'
+[Unit]
+Description=BovinoVision Node app
+After=network.target
+
+[Service]
+User=SEU_USUARIO
+WorkingDirectory=/var/www/bovino
+ExecStart=/usr/bin/node /var/www/bovino/dist/server.cjs
+Restart=always
+Environment=NODE_ENV=production
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+sudo systemctl daemon-reload
+sudo systemctl enable bovinovision
+sudo systemctl start bovinovision
+sudo systemctl status bovinovision
+```
+
+**Como funciona o workflow de deploy**
+- Ao dar push para `main`, o GitHub Actions executa os passos:
+  1. Checkout do código
+  2. `npm ci` e `npm run build`
+  3. Cria um `release.tar.gz` contendo `dist` e arquivos essenciais
+  4. Copia o arquivo para o servidor via SCP
+  5. No servidor: descompacta, instala `npm install --production` e reinicia o `systemd` service
+
+Se quiser limitar branches ou adicionar checks (tests, lint), atualize `.github/workflows/deploy.yml`.
+
+**Dicas de troubleshooting**
+- Se `npm install` falhar por permissões no Windows, rode o terminal como administrador.
+- Se o servidor retornar 500s, verifique logs:
+```
+sudo journalctl -u bovinovision -f
+```
+- Para problemas com secrets ou SCP, verifique se a chave privada no GitHub Secrets corresponde à chave pública instalada em `~/.ssh/authorized_keys` do servidor.
+
+**Contribuição e testes**
+- Sinta-se à vontade para abrir issues no repositório com bugs, melhorias ou dúvidas.
+- Para desenvolvimento, crie branches com nomes descritivos e abra PRs para `main`.
+
+Pedro Omna
 
 ---
-
-## 🚀 Funcionalidades
-- **Estimativa de Peso:** Predição numérica (regressão) baseada em características morfológicas.
-- **Data Augmentation:** Uso de `Albumentations` para aumentar a robustez do modelo contra variações de luz e ângulo.
-- **Interface Web:** App interativo via `Streamlit` para produtores rurais.
-- **Banco de Dados:** Persistência de dados em `SQLite` para acompanhamento do histórico de ganho de peso.
-- **Treinamento em Nuvem:** Pipeline otimizado para Google Colab com uso de GPU.
-
-## 🛠️ Tecnologias Utilizadas
-- **Linguagem:** Python 3.12 (Local) / 3.10 (Colab)
-- **Framework IA:** TensorFlow 2.x e Keras.
-- **Arquitetura:** MobileNetV2 com Transfer Learning.
-- **Processamento:** OpenCV, Pandas, NumPy.
-- **Dashboard:** Streamlit.
-
-## 🧬 Metodologia e Arquitetura
-O modelo foi construído utilizando a técnica de **Aprendizagem por Transferência (Transfer Learning)**. 
-1. **Base:** MobileNetV2 (pré-treinada no ImageNet) para extração de características.
-2. **Camadas Customizadas:** Global Average Pooling, Dropout (0.2) para evitar overfitting e uma camada Dense de saída para regressão.
-3. **Otimização:** Erro Médio Absoluto (MAE) como função de perda para garantir precisão em quilogramas (kg).
-
-## 📊 Resultados e Performance
-O modelo foi validado com um dataset real de gado. 
-- **Erro Médio Absoluto (MAE):** ~60.39 kg.
-- **Comportamento:** O modelo demonstrou alta capacidade de identificar a tendência de peso, conforme validado pelo gráfico de dispersão (Real vs. Predito).
-
-## 📁 Estrutura do Repositório
-```text
-├── src/                # Código fonte do Web App (app.py)
-├── notebooks/          # Notebook (.ipynb) com o processo de treino
-├── models/             # Arquivo do modelo treinado (.h5)
-├── requirements.txt    # Dependências do projeto
-└── README.md           # Documentação
-
-📋 Como Rodar o Projeto
-1. Clonar o repositório
-
-git clone [https://github.com/SEU_USUARIO/Projeto_Bois_IA.git](https://github.com/SEU_USUARIO/Projeto_Bois_IA.git)
-cd Projeto_Bois_IA
-2. Configurar Ambiente Virtual
-
-python -m venv venv
-# No Windows:
-.\venv\Scripts\activate
-# No Linux/Mac:
-source venv/bin/activate
-3. Instalar Dependências
-
-pip install -r requirements.txt
-4. Executar o Aplicativo
-
-streamlit run src/app.py
-📧 Contato
-Desenvolvido por Ludivino José Da Silva Estudante de Engenharia - UFSC Araranguá
-
-Nota: Este é um protótipo acadêmico. Para uso comercial, recomenda-se o aumento do dataset e implementação de segmentação de imagem (YOLO).
-
-
+Arquivo gerado automaticamente com instruções abrangentes para deploy e execução local.
