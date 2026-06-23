@@ -1,0 +1,72 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile representing cattle veterinarians using the system",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "description": "Firebase Auth UID" },
+        "email": { "type": "string", "description": "Email address" },
+        "name": { "type": "string", "description": "Veterinarian full name" },
+        "crmv": { "type": "string", "description": "CRMV registration or veterinary code" },
+        "specialty": { "type": "string", "description": "Zootecnic specialty" },
+        "division": { "type": "string", "description": "Beef division" },
+        "location": { "type": "string", "description": "Operating region" },
+        "license": { "type": "string", "description": "License authorization certificate text" },
+        "photoUrl": { "type": "string", "description": "User profile photo URL" },
+        "hasSeeded": { "type": "boolean", "description": "Flag to prevent re-seeding of sample data if a user deletes their records" },
+        "smtpConfig": { "type": "object", "description": "Veterinarian custom SMTP credentials for real notifications sync" }
+      },
+      "required": ["uid", "email"]
+    },
+    "CattleRecord": {
+      "title": "CattleRecord",
+      "description": "Visual physical assessments and body condition scans of cattle",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Document ID" },
+        "userId": { "type": "string", "description": "UID of the veterinarian owner" },
+        "photoUrl": { "type": "string", "description": "Bovine photo cloud storage URL" },
+        "date": { "type": "string", "description": "Formatted date" },
+        "lot": { "type": "string", "description": "Selected pasture/cattle lot" },
+        "breed": { "type": "string", "description": "Cattle breed" },
+        "score": { "type": "number", "description": "Body condition score from 1.0 to 5.0" },
+        "weight": { "type": "number", "description": "Estimated live weight of the beef in kg" },
+        "fatProgress": { "type": "number", "description": "Subcutaneous fat progress percentage" },
+        "verdict": { "type": "string", "enum": ["APTO PARA ABATE", "NÃO APTO"], "description": "Slaughter readiness verdict" },
+        "aiConfidence": { "type": "number", "description": "AI model confidence percentage" },
+        "notes": { "type": "string", "description": "General clinical veterinarian and nutritionist notes" },
+        "landmarkPoints": { "type": "array", "description": "Subcutaneous virtual skeleton anatomical landmarks coordinates" }
+      },
+      "required": ["id", "userId", "score", "weight", "verdict"]
+    },
+    "Notification": {
+      "title": "Notification",
+      "description": "Push system and clinical alerts for veterinary users",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique notification ID" },
+        "userId": { "type": "string", "description": "Firebase Auth UID of target receiver" },
+        "type": { "type": "string", "enum": ["critical", "success", "notice"], "description": "Alert status rank" },
+        "message": { "type": "string", "description": "Content description of notice" },
+        "time": { "type": "string", "description": "Temporal descriptor" },
+        "unread": { "type": "boolean", "description": "True if user has not acknowledged yet" }
+      },
+      "required": ["id", "userId", "type", "message", "unread"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User profile collection"
+    },
+    "/records/{recordId}": {
+      "schema": "CattleRecord",
+      "description": "Cattle condition scoring records"
+    },
+    "/notifications/{notificationId}": {
+      "schema": "Notification",
+      "description": "User persistent alerts and recommendations collection"
+    }
+  }
+}
