@@ -1,137 +1,209 @@
-# Edge Impulse — Modelo de Estimativa de Peso (Produção)
+# Rayvora Vision Pro — Estimativa de Peso Bovino via Visão Computacional
 
-> **Status: ✅ Modelo em produção.** Este é o modelo atualmente usado pelo sistema (`src/app.py`), carregado a partir de `models/edge-impulse/model.tflite`.
+![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
+![Python](https://img.shields.io/badge/Python-3.12-blue.svg)
+![Framework: Streamlit](https://img.shields.io/badge/Framework-Streamlit-FF4B4B.svg)
+![TinyML: Edge Impulse](https://img.shields.io/badge/TinyML-Edge%20Impulse-1BA94C.svg)
+![Status: Em Desenvolvimento](https://img.shields.io/badge/Status-Em%20Desenvolvimento-yellow.svg)
 
-## Resumo
+**Autores:** Ludivino José Da Silva, Lucas Teixeira e Pedro Omna
+**Disciplina:** Projeto Integrador I (2026.1) – Engenharia de Computação (UFSC)
 
-Modelo de regressão para estimativa de peso de bovinos a partir de imagens, treinado na plataforma [Edge Impulse](https://edgeimpulse.com/) usando **Transfer Learning** com base na arquitetura **MobileNet**.
+---
 
-## Métricas obtidas
+## Sobre o Projeto
 
-| Métrica | Valor |
+O **Rayvora Vision Pro** é um sistema inteligente de estimativa de peso de bovinos a partir de imagens, desenvolvido como parte do Projeto Integrador da UFSC. O objetivo é oferecer ao produtor rural uma alternativa de baixo custo e não invasiva à pesagem mecânica tradicional, usando apenas uma foto do animal e um modelo de **Machine Learning (TinyML)** para estimar o peso em quilogramas.
+
+O sistema combina três frentes técnicas:
+
+1. **Estimativa de peso (Edge Impulse / TinyML):** modelo de regressão treinado com Transfer Learning, atualmente em produção.
+2. **Estimativa de peso (Fine-Tuning):** frente experimental, usando ajuste fino de um modelo pré-treinado (MobileNet) sobre dataset próprio.
+3. **Segmentação de imagem (YOLOv8):** etapa de pré-processamento que isola o boi do fundo da imagem antes da estimativa de peso, aumentando a robustez do sistema.
+
+Os resultados são exibidos em uma interface web (Streamlit), com histórico de pesagens armazenado em banco de dados local e gráficos de evolução de peso por animal.
+
+---
+
+## Arquitetura e Conceitos
+
+O projeto segue um pipeline de **Visão Computacional aplicada à pecuária de precisão**, dividido em três módulos independentes:
+
+1. **Módulo de Segmentação (YOLOv8)**
+   Antes de qualquer estimativa de peso, uma rede de segmentação YOLOv8s-Seg identifica e isola o contorno do animal na imagem, removendo ruído de fundo (cercas, outros animais, vegetação). Isso padroniza a entrada para os modelos de regressão.
+
+2. **Módulo de Estimativa via Edge Impulse (Produção)**
+   Modelo de regressão treinado na plataforma Edge Impulse usando **Transfer Learning** sobre a arquitetura **MobileNet**. É o modelo atualmente utilizado pela aplicação web. Resultado atual: **MAE de 32.87 kg**.
+
+3. **Módulo de Estimativa via Fine-Tuning (Experimental)**
+   Frente de pesquisa paralela, em que um modelo MobileNet pré-treinado (obtido de um projeto de referência de outro TCC) passa por **Fine-Tuning** com o dataset próprio da equipe, buscando reduzir ainda mais o erro de estimativa. Resultado atual: **MAE de 47.82 kg** (ainda não supera o modelo de produção).
+
+Cada módulo possui documentação técnica detalhada na sua respectiva pasta (ver seção [Estrutura do Repositório](#estrutura-do-repositório)).
+
+---
+
+## Funcionalidades
+
+- **Upload e Estimativa de Peso:** o usuário envia uma foto do animal e o sistema retorna o peso estimado, junto com uma métrica de confiança e margem de erro.
+- **Inferência com Quantificação de Incerteza:** múltiplas inferências com ruído estocástico são realizadas para calcular a confiança da predição e a margem de erro estatística.
+- **Histórico Persistente:** todas as pesagens são salvas em um banco de dados local (SQLite), incluindo brinco do animal, data, peso estimado, confiança, erro e a foto utilizada.
+- **Análise de Evolução:** seleção de um animal já cadastrado para visualizar a curva de ganho de peso ao longo do tempo, com gráfico de linha e estatísticas (peso mínimo, máximo e atual).
+- **Motor Portátil (LiteRT):** inferência executada via `ai-edge-litert`, leve e compatível com ambientes de nuvem com recursos limitados (como o Streamlit Community Cloud).
+
+---
+
+## Requisitos de Hardware e Software
+
+### Hardware
+- Computador para desenvolvimento e treinamento (testado em Windows 11).
+- Smartphone ou câmera para captura das imagens dos bovinos.
+- (Opcional, para etapas futuras de TinyML embarcado) Microcontrolador compatível com TensorFlow Lite for Microcontrollers.
+
+### Software
+- **Linguagem:** Python 3.12+
+- **IDE recomendada:** VS Code (com terminal integrado) ou qualquer editor de preferência.
+- **Plataforma de treinamento:** [Edge Impulse](https://edgeimpulse.com/) (conta gratuita) e Google Colab (para o módulo de Fine-Tuning).
+- **Gerenciador de pacotes:** `pip`.
+- **Controle de versão:** `git`.
+
+### Bibliotecas Python (`requirements.txt`)
+
+| Biblioteca | Função no projeto |
 |---|---|
-| MAE (Mean Absolute Error) | **32.87 kg** |
-| MSE (Mean Squared Error) | 1539.54 |
-| RMSE (raiz do MSE) | ≈ 39.23 kg |
-| Explained Variance Score | -1.19 |
+| `streamlit` | Framework da interface web (upload de imagem, dashboard, histórico) |
+| `ai-edge-litert` | Motor de inferência portátil (LiteRT/TFLite) usado para carregar e executar o modelo `.tflite` do Edge Impulse |
+| `opencv-python-headless` | Processamento digital de imagens (redimensionamento, conversão de espaço de cor) |
+| `numpy` | Operações numéricas e manipulação de arrays (normalização de pixels, cálculo de estatísticas) |
+| `pillow` | Abertura, conversão e manipulação de imagens enviadas pelo usuário |
+| `pandas` | Manipulação de dados tabulares (leitura e exibição do histórico de pesagens) |
+| `matplotlib` | Geração de gráficos auxiliares (quando necessário fora do `st.line_chart` nativo) |
 
-**Interpretação:**
-- Na média, o modelo erra a estimativa de peso em ±32.87 kg.
-- O RMSE maior que o MAE indica que existem alguns casos (outliers) onde o erro é bem maior que a média — provavelmente fotos com ângulo, iluminação ou enquadramento ruins.
-- O Explained Variance Score negativo indica que o modelo ainda não está capturando bem a variância real dos pesos — há espaço de melhoria, e por isso a equipe está testando a abordagem de Fine-Tuning (ver `models/fine-tuning/`) como próximo passo.
+Instalação:
+```sh
+pip install -r requirements.txt
+```
 
-## Passo a passo: como o modelo foi construído
+> **Observação:** o módulo de segmentação (YOLOv8) e o notebook de Fine-Tuning utilizam bibliotecas adicionais (`ultralytics`, `torch`, etc.) que **não** fazem parte do `requirements.txt` principal, pois não são necessárias para rodar a aplicação web em produção — são usadas apenas durante o desenvolvimento/treinamento dos modelos (ver READMEs específicos em `models/segmentation/` e `models/fine-tuning/`).
 
-### 1. Aquisição e upload do dataset
-- Imagens de bovinos com os respectivos pesos reais (kg) como label, vindas do processamento feito no Google Colab.
-- Upload feito em **Data Acquisition**, com divisão automática de **80% treino / 20% teste**.
+---
 
-### 2. Configuração do Impulse (Impulse Design)
-- **Bloco de entrada (Image Data):** redimensionamento para **128×128 pixels**, modo *Resize: Squash*.
-- **Bloco de processamento (Processing Block):** bloco **Image**, extraindo características em **RGB**.
-- **Bloco de aprendizado (Learning Block):** **Transfer Learning (Images)**, usando a arquitetura **MobileNet** pré-treinada como base.
+## Estrutura do Repositório
+Projeto_Bois_IA/
 
-### 3. Extração de características
-- Em **Image**, parâmetros salvos com normalização padrão de pixels.
-- **Generate Features** executado — o Edge Impulse processa todas as imagens e gera o **Feature Explorer** (gráfico 3D mostrando o agrupamento visual das imagens conforme similaridade).
+├── src/
 
-### 4. Treinamento (Transfer Learning)
-- Base **MobileNet** com pesos pré-treinados, ajustando as camadas finais para a tarefa de regressão (peso em kg).
-- Ajuste de hiperparâmetros (épocas e taxa de aprendizado) para buscar convergência estável.
+│   ├── app.py              # Aplicação principal (Streamlit) — ponto de entrada em produção
 
-### 5. Validação
-- Métricas exibidas no painel após o treino (ver tabela acima).
-- Gráfico **Predicted vs. Actual**: dispersão comparando peso real (eixo X) vs. peso previsto (eixo Y).
+│   └── main.py              # Script auxiliar (em avaliação)
 
-### 6. Exportação (Deployment)
-- Aba **Deployment** → formato **C++ Library**.
-- Otimização: **Float32** (sem quantização), para preservar a precisão decimal necessária à regressão.
-- **Build** gerado, baixando o `.zip` com o `model.tflite` correspondente.
+│
 
-## Arquivos nesta pasta
+├── models/
 
-| Arquivo | Descrição |
-|---|---|
-| `model.tflite` | Modelo final extraído, usado em produção por `src/app.py` |
-| `edge-impulse-export.zip` | Pacote completo de export baixado do Edge Impulse (contém o `.tflite` + metadados/código C++) |
+│   ├── segmentation/         # Modelo YOLOv8 de segmentação do boi na imagem
 
-## Dataset utilizado
+│   ├── edge-impulse/         # Modelo de regressão em PRODUÇÃO (Transfer Learning, MAE 32.87 kg)
 
-Ver `data/dataset/README.md` — mesmo dataset usado também no Fine-Tuning.
+│   └── fine-tuning/          # Modelo experimental via Fine-Tuning (MAE 47.82 kg)
 
-## Glossário rápido (termos do Edge Impulse)
+│
 
-| Termo (EN) | Significado (PT) |
-|---|---|
-| Data Acquisition | Aquisição/coleta de dados |
-| Impulse Design | Desenho do fluxo de processamento (do dado bruto até a saída) |
-| Features | Características extraídas da imagem (bordas, texturas, contornos) |
-| Transfer Learning | Reaproveitar uma rede já treinada (MobileNet) e ajustar só a parte final para a tarefa específica |
-| Epochs | Épocas — número de vezes que a rede percorre todo o dataset de treino |
-| Learning Rate | Taxa de aprendizado — tamanho do "passo" de ajuste dos pesos a cada erro |
-| MAE | Erro médio absoluto — erro médio em kg |
-| Explained Variance Score | O quanto o modelo explica a variação real dos pesos (ideal: próximo de 1.0) |
-| Deployment | Exportação do modelo treinado para uso fora da plataforma |
+├── data/
 
-# Fine-Tuning — Modelo Experimental (V2)
+│   └── dataset/              # Dataset de imagens + pesos reais (fora do Git, ver README da pasta)
 
-> **Status: 🧪 Experimental.** Este modelo ainda **não substitui** o modelo em produção (`models/edge-impulse/model.tflite`). O resultado atual (MAE 47.82 kg) é **pior** que o modelo do Edge Impulse (MAE 32.87 kg). Mantido aqui como frente de pesquisa em desenvolvimento para a Sprint 3.
+│
 
-## Resumo
+├── external/
 
-Tentativa de melhorar a estimativa de peso aplicando **Fine-Tuning** (ajuste fino) sobre um modelo **MobileNet pré-treinado**, obtido a partir do projeto de referência indicado pelo Prof. Alexandre (ver `external/TCC_V2-master.zip`). O treinamento foi feito no **Google Colab**.
+│   └── TCC_V2-master.zip     # Projeto de referência (TCC de outro grupo) usado como base do Fine-Tuning
 
-## Métrica obtida
+│
 
-| Métrica | Valor |
-|---|---|
-| MAE (Mean Absolute Error) | **47.82 kg** |
+├── requirements.txt
 
-**Comparação com o modelo de produção:**
+├── .gitignore
 
-| Modelo | MAE |
-|---|---|
-| Edge Impulse (Transfer Learning / MobileNet) — produção | 32.87 kg |
-| Fine-Tuning (MobileNet pré-treinado + ajuste fino) — experimental | 47.82 kg |
+└── README.md
 
-O resultado do Fine-Tuning ainda não superou o modelo atual. Possíveis causas a investigar: diferença entre o domínio do dataset original do modelo pré-treinado (imagens de vista superior) e o dataset próprio (vista traseira), quantidade de dados de treino, ou hiperparâmetros do ajuste fino.
+Cada subpasta de `models/` possui seu próprio `README.md` com o passo a passo técnico completo de como aquele modelo específico foi construído, as métricas obtidas e o estado atual (produção ou experimental).
 
-## Passo a passo: como foi feito
+---
 
-### 1. Origem do modelo base
-- Modelo pré-treinado **MobileNet**, obtido do projeto de referência indicado pelo Prof. Alexandre: `external/TCC_V2-master.zip` (projeto de outro grupo/TCC que trabalhou com estimativa de peso bovino usando imagens de vista superior).
+## Instalação e Configuração
 
-### 2. Dataset utilizado
-- **Apenas o dataset próprio** da equipe (`data/dataset/`, o mesmo usado no Edge Impulse) — imagens de bovinos (vista traseira) com peso real (kg) como label.
+### Passo 1: Clonar o repositório
 
-### 3. Processo de Fine-Tuning (Google Colab)
-- Carregamento do modelo pré-treinado (pesos do MobileNet vindos do TCC de referência).
-- Camadas base mantidas (congeladas ou parcialmente ajustadas) para reaproveitar o conhecimento visual genérico já aprendido (bordas, texturas, formas).
-- Ajuste fino (fine-tuning) das camadas finais de regressão usando o dataset próprio, para adaptar a saída à tarefa específica de prever peso (kg) a partir das imagens da Rayvora.
-- Notebook completo: `FineTuning_Rayvora.ipynb`.
+```sh
+git clone https://github.com/ludivinojosedasilva/Projeto_Bois_IA.git
+cd Projeto_Bois_IA
+```
 
-### 4. Avaliação
-- MAE calculado sobre o conjunto de teste: **47.82 kg**.
+### Passo 2: Instalar as dependências
 
-## Arquivos nesta pasta
+```sh
+pip install -r requirements.txt
+```
 
-| Arquivo | Descrição |
-|---|---|
-| `FineTuning_Rayvora.ipynb` | Notebook do Google Colab com todo o processo de fine-tuning |
-| `model.tflite` | Modelo resultante do fine-tuning (experimental, não usado em produção) |
-| `Rayvora_v3_Fine_Tunning_Completo.zip` | Pacote completo gerado a partir do processo de fine-tuning |
+### Passo 3: Executar a aplicação
 
-## Próximos passos (Sprint 3)
+```sh
+streamlit run src/app.py
+```
 
-- Investigar por que o MAE ficou maior que o modelo do Edge Impulse.
-- Testar variações de hiperparâmetros (taxa de aprendizado, épocas, quais camadas congelar).
-- Avaliar se vale combinar o dataset próprio com imagens do dataset de referência (vista superior) do TCC, mesmo que o domínio visual seja diferente.
-- Comparar resultado final com o modelo de produção antes de decidir por uma eventual substituição.
+A aplicação abrirá automaticamente no navegador, em `http://localhost:8501`.
 
-## Dataset utilizado
+---
 
-Ver `data/dataset/README.md`.
+## Como Usar
 
-## Projeto de referência (origem do modelo pré-treinado)
+1. **Nova Pesagem**
+   - No menu lateral, selecione **"Nova Pesagem"**.
+   - Informe o identificador do brinco do animal (ex: `BOI_01`).
+   - Faça o upload de uma foto do bovino.
+   - Clique em **"Calcular Peso"**.
+   - O sistema exibirá o peso estimado, a confiança da predição e a margem de erro.
 
-Ver `external/README.md`.
+2. **Histórico**
+   - No menu lateral, selecione a aba de histórico para visualizar todas as pesagens já registradas.
+
+3. **Análise de Evolução**
+   - Selecione o brinco de um animal já pesado anteriormente.
+   - Visualize o gráfico de evolução de peso e as estatísticas (peso mínimo, máximo e mais recente).
+
+---
+
+## Modelos e Métricas
+
+| Módulo | Técnica | Status | MAE |
+|---|---|---|---|
+| Edge Impulse | Transfer Learning (MobileNet) | ✅ Produção | 32.87 kg |
+| Fine-Tuning | Fine-Tuning sobre modelo pré-treinado (MobileNet) | 🧪 Experimental | 47.82 kg |
+| Segmentação | YOLOv8s-Seg | ✅ Validado | mAP50: 0.9948 / mAP50-95: 0.9735 |
+
+Detalhes completos de cada treinamento (hiperparâmetros, datasets, passo a passo) estão documentados nos READMEs de cada subpasta em `models/`.
+
+---
+
+## Roadmap (Próximos Passos)
+
+- Reduzir o MAE do modelo de Fine-Tuning para que supere o modelo atual em produção.
+- Integrar a etapa de segmentação (YOLOv8) ao pipeline da aplicação web, isolando o boi do fundo antes da estimativa de peso.
+- Avaliar viabilidade de embarcar o pipeline completo (segmentação + regressão) em ambientes com recursos limitados.
+- Expandir o dataset com mais imagens e condições de captura (iluminação, ângulo, raça).
+
+---
+
+## Licença
+
+Este projeto está licenciado sob a **MIT License**. Veja o arquivo `LICENSE` para mais detalhes.
+
+---
+
+## Autores
+
+* **Ludivino José Da Silva**
+* **Lucas Teixeira**
+* **Pedro Omna**
+
+*Projeto Integrador I — Engenharia de Computação, UFSC (2026.1).*
