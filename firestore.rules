@@ -1,0 +1,117 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // 1. Global Safety Net: Default-deny catch-all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- Hardened Global Helpers ---
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    // Verify email verification state or standard authenticated sign-in provider is active
+    function isVerifiedUser() {
+      return isSignedIn() && (
+        request.auth.token.email_verified == true 
+        || request.auth.token.firebase.sign_in_provider == 'google.com'
+        || request.auth.token.firebase.sign_in_provider == 'password'
+      );
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    // --- Enterprise Security Entity Blueprints ---
+    function isValidUser(data) {
+      return data.keys().hasAll(['uid', 'email'])
+        && data.uid is string && data.uid == request.auth.uid
+        && data.email is string && data.email.size() <= 128
+        && (!('name' in data) || (data.name is string && data.name.size() <= 128))
+        && (!('crmv' in data) || (data.crmv is string && data.crmv.size() <= 64))
+        && (!('specialty' in data) || (data.specialty is string && data.specialty.size() <= 128))
+        && (!('division' in data) || (data.division is string && data.division.size() <= 128))
+        && (!('location' in data) || (data.location is string && data.location.size() <= 128))
+        && (!('photoUrl' in data) || (data.photoUrl is string && data.photoUrl.size() <= 10485760))
+        && (!('hasSeeded' in data) || (data.hasSeeded is bool))
+        && (!('smtpConfig' in data) || (data.smtpConfig is map || data.smtpConfig == null))
+        && (!('license' in data) || (data.license is string && data.license.size() <= 256));
+    }
+
+    function isValidCattleRecord(data) {
+      return data.keys().hasAll(['id', 'userId', 'score', 'weight', 'verdict'])
+        && data.id is string && data.id.size() <= 128
+        && data.userId is string && data.userId == request.auth.uid
+        && data.score is number && data.score >= 1.0 && data.score <= 5.0
+        && data.weight is number && data.weight > 0.0 && data.weight <= 2000.0
+        && data.verdict is string && (data.verdict == 'APTO PARA ABATE' || data.verdict == 'NÃO APTO')
+        && (!('breed' in data) || (data.breed is string && data.breed.size() <= 128))
+        && (!('lot' in data) || (data.lot is string && data.lot.size() <= 128))
+        && (!('photoUrl' in data) || (data.photoUrl is string && data.photoUrl.size() <= 10485760))
+        && (!('notes' in data) || (data.notes is string && data.notes.size() <= 4096))
+        && (!('aiConfidence' in data) || (data.aiConfidence is number && data.aiConfidence >= 0.0 && data.aiConfidence <= 100.0))
+        && (!('fatProgress' in data) || (data.fatProgress is number && data.fatProgress >= 0.0 && data.fatProgress <= 100.0))
+        && (!('date' in data) || (data.date is string && data.date.size() <= 64))
+        && (!('landmarkPoints' in data) || (data.landmarkPoints is list))
+        && (!('isOfflinePending' in data) || (data.isOfflinePending is bool))
+        && (!('offlineStoredImage' in data) || (data.offlineStoredImage is string && data.offlineStoredImage.size() <= 10485760));
+    }
+
+    function isValidNotification(data) {
+      return data.keys().hasAll(['id', 'userId', 'type', 'message', 'unread'])
+        && data.id is string && data.id.size() <= 128
+        && data.userId is string && data.userId == request.auth.uid
+        && data.type is string && (data.type == 'critical' || data.type == 'success' || data.type == 'notice')
+        && data.message is string && data.message.size() <= 1024
+        && data.unread is bool
+        && (!('time' in data) || (data.time is string && data.time.size() <= 128))
+        && (!('createdAt' in data) || (data.createdAt is string || data.createdAt is timestamp));
+    }
+
+    // --- Collection Matches ---
+    match /users/{userId} {
+      allow get: if isOwner(userId);
+      allow create: if isOwner(userId) && isValidUser(incoming());
+      allow update: if isOwner(userId) && isValidUser(incoming())
+        && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'crmv', 'specialty', 'division', 'location', 'license', 'photoUrl', 'email', 'uid', 'hasSeeded', 'smtpConfig']);
+      allow delete: if false; // User accounts cannot be deleted arbitrarily from client SDKs
+    }
+
+    match /records/{recordId} {
+      allow get: if isSignedIn() && existing().userId == request.auth.uid;
+      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow create: if isSignedIn() && isValidId(recordId) && isValidCattleRecord(incoming());
+      allow update: if isSignedIn() && isValidId(recordId) && isValidCattleRecord(incoming())
+        && existing().userId == request.auth.uid
+        && incoming().userId == existing().userId
+        && incoming().id == existing().id;
+      allow delete: if isSignedIn() && existing().userId == request.auth.uid;
+    }
+
+    match /notifications/{notificationId} {
+      allow get: if isSignedIn() && existing().userId == request.auth.uid;
+      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow create: if isSignedIn() && isValidId(notificationId) && isValidNotification(incoming());
+      allow update: if isSignedIn() && isValidId(notificationId) && isValidNotification(incoming())
+        && existing().userId == request.auth.uid
+        && incoming().userId == existing().userId
+        && incoming().id == existing().id;
+      allow delete: if isSignedIn() && existing().userId == request.auth.uid;
+    }
+  }
+}

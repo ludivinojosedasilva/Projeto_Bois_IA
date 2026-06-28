@@ -1,0 +1,6 @@
+{
+  "name": "BovinoVision AI",
+  "description": "Sistema inteligente de monitoramento e estimativa de carcaça bovina por visão computacional, cálculo de ECC e diagnóstico de abate em tempo real",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

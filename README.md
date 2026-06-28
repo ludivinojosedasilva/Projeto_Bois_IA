@@ -1,209 +1,260 @@
-# Rayvora Vision Pro — Estimativa de Peso Bovino via Visão Computacional
+**BovinoVision — Sistema de Análise da Condição Corporal de Bovinos**
 
-![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
-![Python](https://img.shields.io/badge/Python-3.12-blue.svg)
-![Framework: Streamlit](https://img.shields.io/badge/Framework-Streamlit-FF4B4B.svg)
-![TinyML: Edge Impulse](https://img.shields.io/badge/TinyML-Edge%20Impulse-1BA94C.svg)
-![Status: Em Desenvolvimento](https://img.shields.io/badge/Status-Em%20Desenvolvimento-yellow.svg)
+Bem-vindo ao repositório do BovinoVision. Este README descreve de forma completa o que o projeto contém, as dependências usadas, como executar localmente, como gerar o build de produção e como configurar deploy automático via GitHub Actions para um servidor Linux com systemd.
 
-**Autores:** Ludivino José Da Silva, Lucas Teixeira e Pedro Omna
-**Disciplina:** Projeto Integrador I (2026.1) – Engenharia de Computação (UFSC)
+**Visão Geral**:
+- **Propósito**: Ferramenta web para avaliar condição corporal de bovinos, com interface React + backend Node/Express.
+- **Arquitetura**: SPA React (Vite) servido por um servidor Node que também implementa rotas de API e integrações (Firebase Admin, Supabase, serviços de email).
 
----
+## Protótipo das telas
 
-## Sobre o Projeto
+A seguir as capturas principais do protótipo. Cada imagem é exibida diretamente com a descrição abaixo.
 
-O **Rayvora Vision Pro** é um sistema inteligente de estimativa de peso de bovinos a partir de imagens, desenvolvido como parte do Projeto Integrador da UFSC. O objetivo é oferecer ao produtor rural uma alternativa de baixo custo e não invasiva à pesagem mecânica tradicional, usando apenas uma foto do animal e um modelo de **Machine Learning (TinyML)** para estimar o peso em quilogramas.
+<p align="center">
+  <img src="Protótipo%20das%20telas/Image%20(1).png" alt="Login - tema escuro" width="900">
+</p>
 
-O sistema combina três frentes técnicas:
-
-1. **Estimativa de peso (Edge Impulse / TinyML):** modelo de regressão treinado com Transfer Learning, atualmente em produção.
-2. **Estimativa de peso (Fine-Tuning):** frente experimental, usando ajuste fino de um modelo pré-treinado (MobileNet) sobre dataset próprio.
-3. **Segmentação de imagem (YOLOv8):** etapa de pré-processamento que isola o boi do fundo da imagem antes da estimativa de peso, aumentando a robustez do sistema.
-
-Os resultados são exibidos em uma interface web (Streamlit), com histórico de pesagens armazenado em banco de dados local e gráficos de evolução de peso por animal.
+**Tela de login (tema escuro):** Entrada do usuário com imagem de destaque.
 
 ---
 
-## Arquitetura e Conceitos
+<p align="center">
+  <img src="Protótipo%20das%20telas/Image%20(2).png" alt="Histórico - tema escuro" width="900">
+</p>
 
-O projeto segue um pipeline de **Visão Computacional aplicada à pecuária de precisão**, dividido em três módulos independentes:
-
-1. **Módulo de Segmentação (YOLOv8)**
-   Antes de qualquer estimativa de peso, uma rede de segmentação YOLOv8s-Seg identifica e isola o contorno do animal na imagem, removendo ruído de fundo (cercas, outros animais, vegetação). Isso padroniza a entrada para os modelos de regressão.
-
-2. **Módulo de Estimativa via Edge Impulse (Produção)**
-   Modelo de regressão treinado na plataforma Edge Impulse usando **Transfer Learning** sobre a arquitetura **MobileNet**. É o modelo atualmente utilizado pela aplicação web. Resultado atual: **MAE de 32.87 kg**.
-
-3. **Módulo de Estimativa via Fine-Tuning (Experimental)**
-   Frente de pesquisa paralela, em que um modelo MobileNet pré-treinado (obtido de um projeto de referência de outro TCC) passa por **Fine-Tuning** com o dataset próprio da equipe, buscando reduzir ainda mais o erro de estimativa. Resultado atual: **MAE de 47.82 kg** (ainda não supera o modelo de produção).
-
-Cada módulo possui documentação técnica detalhada na sua respectiva pasta (ver seção [Estrutura do Repositório](#estrutura-do-repositório)).
+**Histórico de avaliações:** Filtros, busca e listagem de animais.
 
 ---
 
-## Funcionalidades
+<p align="center">
+  <img src="Protótipo%20das%20telas/Image%20(3).png" alt="Perfil do Usuário" width="900">
+</p>
 
-- **Upload e Estimativa de Peso:** o usuário envia uma foto do animal e o sistema retorna o peso estimado, junto com uma métrica de confiança e margem de erro.
-- **Inferência com Quantificação de Incerteza:** múltiplas inferências com ruído estocástico são realizadas para calcular a confiança da predição e a margem de erro estatística.
-- **Histórico Persistente:** todas as pesagens são salvas em um banco de dados local (SQLite), incluindo brinco do animal, data, peso estimado, confiança, erro e a foto utilizada.
-- **Análise de Evolução:** seleção de um animal já cadastrado para visualizar a curva de ganho de peso ao longo do tempo, com gráfico de linha e estatísticas (peso mínimo, máximo e atual).
-- **Motor Portátil (LiteRT):** inferência executada via `ai-edge-litert`, leve e compatível com ambientes de nuvem com recursos limitados (como o Streamlit Community Cloud).
+**Página de perfil:** Informações do usuário e configurações de conta.
 
 ---
 
-## Requisitos de Hardware e Software
+<p align="center">
+  <img src="Protótipo%20das%20telas/Image%20(4).png" alt="Configurações (modal)" width="900">
+</p>
 
-### Hardware
-- Computador para desenvolvimento e treinamento (testado em Windows 11).
-- Smartphone ou câmera para captura das imagens dos bovinos.
-- (Opcional, para etapas futuras de TinyML embarcado) Microcontrolador compatível com TensorFlow Lite for Microcontrollers.
+**Modal de parâmetros:** Calibração, notificações e integração SMTP.
 
-### Software
-- **Linguagem:** Python 3.12+
-- **IDE recomendada:** VS Code (com terminal integrado) ou qualquer editor de preferência.
-- **Plataforma de treinamento:** [Edge Impulse](https://edgeimpulse.com/) (conta gratuita) e Google Colab (para o módulo de Fine-Tuning).
-- **Gerenciador de pacotes:** `pip`.
-- **Controle de versão:** `git`.
+---
 
-### Bibliotecas Python (`requirements.txt`)
+<p align="center">
+  <img src="Protótipo%20das%20telas/Image%20(5).png" alt="Chat de Suporte" width="900">
+</p>
 
-| Biblioteca | Função no projeto |
-|---|---|
-| `streamlit` | Framework da interface web (upload de imagem, dashboard, histórico) |
-| `ai-edge-litert` | Motor de inferência portátil (LiteRT/TFLite) usado para carregar e executar o modelo `.tflite` do Edge Impulse |
-| `opencv-python-headless` | Processamento digital de imagens (redimensionamento, conversão de espaço de cor) |
-| `numpy` | Operações numéricas e manipulação de arrays (normalização de pixels, cálculo de estatísticas) |
-| `pillow` | Abertura, conversão e manipulação de imagens enviadas pelo usuário |
-| `pandas` | Manipulação de dados tabulares (leitura e exibição do histórico de pesagens) |
-| `matplotlib` | Geração de gráficos auxiliares (quando necessário fora do `st.line_chart` nativo) |
+**Suporte técnico:** Assistente virtual integrado para dúvidas e diagnósticos.
 
-Instalação:
-```sh
-pip install -r requirements.txt
+---
+
+<p align="center">
+  <img src="Protótipo%20das%20telas/Image%20(6).png" alt="Nova Avaliação - Loading IA" width="900">
+</p>
+
+**Nova Avaliação (processando IA):** Início do processamento computacional.
+
+---
+
+<p align="center">
+  <img src="Protótipo%20das%20telas/Image%20(7).png" alt="Nova Avaliação - Upload e Detecção" width="900">
+</p>
+
+**Upload e Detecção:** Foto carregada e detecção automática da região traseira.
+
+---
+
+<p align="center">
+  <img src="Protótipo%20das%20telas/Image%20(8).png" alt="Upload Manual" width="900">
+</p>
+
+**Upload Manual:** Área para carregar fotos (JPEG/PNG) ou planilhas de controle.
+
+---
+
+<p align="center">
+  <img src="Protótipo%20das%20telas/Image%20(9).png" alt="Histórico - lista clara" width="900">
+</p>
+
+**Histórico (tema claro):** Versão clara do histórico com filtros e resultados.
+
+---
+
+<p align="center">
+  <img src="Protótipo%20das%20telas/Image%20(10).png" alt="Listagem de Avaliações" width="900">
+</p>
+
+**Listagem de Avaliações:** Miniaturas, informações de peso, ECC e veredito.
+
+---
+
+<p align="center">
+  <img src="Protótipo%20das%20telas/Image%20(11).png" alt="Resultado da Análise" width="900">
+</p>
+
+**Resultado da Análise:** Visualização com marcações e métricas extraídas (apto/abate).
+
+---
+
+<p align="center">
+  <img src="Protótipo%20das%20telas/Image%20(12).png" alt="Painel - Resumo do Rebanho" width="900">
+</p>
+
+**Painel - Resumo do Rebanho:** Métricas agregadas e evolução do ECC por mês.
+
+---
+
+<p align="center">
+  <img src="Protótipo%20das%20telas/Image%20(13).png" alt="Criar Conta" width="900">
+</p>
+
+**Criar Conta:** Formulário para cadastrar novo usuário.
+
+---
+
+<p align="center">
+  <img src="Protótipo%20das%20telas/Image%20(14).png" alt="Login - tema claro" width="900">
+</p>
+
+**Tela de login (tema claro):** Alternativa visual da página de entrada.
+
+---
+
+Se quiser trocar a ordem, reduzir o tamanho das imagens ou manter também o link externo, me diga qual opção prefere.
+
+**Estrutura do Projeto (resumo)**:
+- `src/` — código cliente React (componentes, estilos, assets).
+- `server.ts` — servidor Node/Express (entry server para dev e build server.cjs para produção).
+- `server/` — helpers de servidor (ex.: `emailService.ts`).
+- `lib/` — integrações (Firebase, Supabase, schemas).
+- `.github/workflows/` — workflow de CI/CD (deploy automático).
+- `dist/` — artefatos de produção gerados por `npm run build`.
+
+**Tecnologias e Dependências Principais**
+- Frontend: `react`, `react-dom`, `@vitejs/plugin-react`, `vite`.
+- Backend: `express`, `node` (via `server.ts`, empacotado com `esbuild`).
+- Autenticação / BaaS: `firebase`, `firebase-admin`, `@supabase/supabase-js`.
+- Utilitários: `zod` (validação), `nodemailer` (envio de email), `dotenv`.
+- Ferramentas de build: `vite`, `esbuild`, `tsx` (dev server), `typescript`.
+
+Confira o `package.json` para a lista completa de dependências e versões.
+
+**Scripts úteis (package.json)**
+- `npm run dev` — inicia o servidor em modo desenvolvimento usando `tsx server.ts`.
+- `npm run build` — executa `vite build` e empacota `server.ts` em `dist/server.cjs` com `esbuild`.
+- `npm run start` — executa `node dist/server.cjs` (assume que `dist` já foi gerado).
+- `npm run start:prod` — (helper) roda `npm run build && npm run start`.
+
+**Variáveis de ambiente**
+- Use um arquivo `.env` (não comitado) para configurar chaves e segredos:
+  - `PORT` — porta do servidor (padrão 3000)
+  - `FIREBASE_*` — credenciais do Firebase (conforme `lib/firebase-admin.ts`)
+  - `SUPABASE_URL` / `SUPABASE_KEY` — credenciais Supabase
+  - `SMTP_*` — credenciais do servidor SMTP para `nodemailer`
+  - Outras chaves específicas usadas no código (ver `lib` e `server.ts`).
+
+**Executar localmente (desenvolvimento)**
+1. Instale Node.js LTS (recomendado) e git.
+2. No terminal, na raiz do projeto:
+```
+cd "C:\Users\Pedro\Downloads\BovinoVision AI-System"
+npm install
+```
+3. Crie seu `.env` com as variáveis necessárias (baseie-se em `.env.example` se existir).
+4. Inicie em modo dev:
+```
+npm run dev
+```
+5. Abra `http://localhost:3000` no navegador.
+
+**Build e execução em produção (local ou servidor)**
+1. Gerar build e empacotar o server:
+```
+npm run build
+```
+2. Iniciar servidor de produção (assume `node` instalado no host):
+```
+npm run start
+```
+Ou execute o helper criado (PowerShell / CMD):
+```
+.\run-prod.ps1    # PowerShell
+run-prod.bat      # CMD
 ```
 
-> **Observação:** o módulo de segmentação (YOLOv8) e o notebook de Fine-Tuning utilizam bibliotecas adicionais (`ultralytics`, `torch`, etc.) que **não** fazem parte do `requirements.txt` principal, pois não são necessárias para rodar a aplicação web em produção — são usadas apenas durante o desenvolvimento/treinamento dos modelos (ver READMEs específicos em `models/segmentation/` e `models/fine-tuning/`).
+**Deploy automático via GitHub Actions (fluxo usado aqui)**
+- O workflow empacota `dist/`, copia para o servidor via SCP usando uma chave SSH armazenada em GitHub Secrets, descompacta, instala dependências de produção e reinicia o serviço `systemd` (`bovinovision`).
 
----
+Secrets GitHub recomendados (Repository → Settings → Secrets → Actions):
+- `SSH_PRIVATE_KEY` — chave privada criada para o pipeline (não compartilhe).
+- `SSH_HOST` — host ou IP do servidor.
+- `SSH_USER` — usuário SSH no servidor.
+- `SSH_PORT` — opcional (22 por padrão).
+- `REMOTE_DIR` — diretório remoto onde os arquivos serão extraídos (ex.: `/var/www/bovino`).
 
-## Estrutura do Repositório
-Projeto_Bois_IA/
+**Configuração do servidor (ex.: Ubuntu VPS)**
+1. Preparar diretório remoto e Node:
+```
+sudo mkdir -p /var/www/bovino
+sudo chown -R $USER:$USER /var/www/bovino
+curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+sudo apt-get install -y nodejs
+```
+2. Adicionar chave pública (`~/.ssh/authorized_keys`) para o usuário do deploy.
+3. Criar unit `systemd` (exemplo):
+```
+sudo tee /etc/systemd/system/bovinovision.service > /dev/null <<'EOF'
+[Unit]
+Description=BovinoVision Node app
+After=network.target
 
-├── src/
+[Service]
+User=SEU_USUARIO
+WorkingDirectory=/var/www/bovino
+ExecStart=/usr/bin/node /var/www/bovino/dist/server.cjs
+Restart=always
+Environment=NODE_ENV=production
 
-│   ├── app.py              # Aplicação principal (Streamlit) — ponto de entrada em produção
+[Install]
+WantedBy=multi-user.target
+EOF
 
-│   └── main.py              # Script auxiliar (em avaliação)
-
-│
-
-├── models/
-
-│   ├── segmentation/         # Modelo YOLOv8 de segmentação do boi na imagem
-
-│   ├── edge-impulse/         # Modelo de regressão em PRODUÇÃO (Transfer Learning, MAE 32.87 kg)
-
-│   └── fine-tuning/          # Modelo experimental via Fine-Tuning (MAE 47.82 kg)
-
-│
-
-├── data/
-
-│   └── dataset/              # Dataset de imagens + pesos reais (fora do Git, ver README da pasta)
-
-│
-
-├── external/
-
-│   └── TCC_V2-master.zip     # Projeto de referência (TCC de outro grupo) usado como base do Fine-Tuning
-
-│
-
-├── requirements.txt
-
-├── .gitignore
-
-└── README.md
-
-Cada subpasta de `models/` possui seu próprio `README.md` com o passo a passo técnico completo de como aquele modelo específico foi construído, as métricas obtidas e o estado atual (produção ou experimental).
-
----
-
-## Instalação e Configuração
-
-### Passo 1: Clonar o repositório
-
-```sh
-git clone https://github.com/ludivinojosedasilva/Projeto_Bois_IA.git
-cd Projeto_Bois_IA
+sudo systemctl daemon-reload
+sudo systemctl enable bovinovision
+sudo systemctl start bovinovision
+sudo systemctl status bovinovision
 ```
 
-### Passo 2: Instalar as dependências
+**Como funciona o workflow de deploy**
+- Ao dar push para `main`, o GitHub Actions executa os passos:
+  1. Checkout do código
+  2. `npm ci` e `npm run build`
+  3. Cria um `release.tar.gz` contendo `dist` e arquivos essenciais
+  4. Copia o arquivo para o servidor via SCP
+  5. No servidor: descompacta, instala `npm install --production` e reinicia o `systemd` service
 
-```sh
-pip install -r requirements.txt
+Se quiser limitar branches ou adicionar checks (tests, lint), atualize `.github/workflows/deploy.yml`.
+
+**Dicas de troubleshooting**
+- Se `npm install` falhar por permissões no Windows, rode o terminal como administrador.
+- Se o servidor retornar 500s, verifique logs:
 ```
-
-### Passo 3: Executar a aplicação
-
-```sh
-streamlit run src/app.py
+sudo journalctl -u bovinovision -f
 ```
+- Para problemas com secrets ou SCP, verifique se a chave privada no GitHub Secrets corresponde à chave pública instalada em `~/.ssh/authorized_keys` do servidor.
 
-A aplicação abrirá automaticamente no navegador, em `http://localhost:8501`.
+**Contribuição e testes**
+- Sinta-se à vontade para abrir issues no repositório com bugs, melhorias ou dúvidas.
+- Para desenvolvimento, crie branches com nomes descritivos e abra PRs para `main`.
 
+<<<<<<< HEAD
 ---
-
-## Como Usar
-
-1. **Nova Pesagem**
-   - No menu lateral, selecione **"Nova Pesagem"**.
-   - Informe o identificador do brinco do animal (ex: `BOI_01`).
-   - Faça o upload de uma foto do bovino.
-   - Clique em **"Calcular Peso"**.
-   - O sistema exibirá o peso estimado, a confiança da predição e a margem de erro.
-
-2. **Histórico**
-   - No menu lateral, selecione a aba de histórico para visualizar todas as pesagens já registradas.
-
-3. **Análise de Evolução**
-   - Selecione o brinco de um animal já pesado anteriormente.
-   - Visualize o gráfico de evolução de peso e as estatísticas (peso mínimo, máximo e mais recente).
-
----
-
-## Modelos e Métricas
-
-| Módulo | Técnica | Status | MAE |
-|---|---|---|---|
-| Edge Impulse | Transfer Learning (MobileNet) | ✅ Produção | 32.87 kg |
-| Fine-Tuning | Fine-Tuning sobre modelo pré-treinado (MobileNet) | 🧪 Experimental | 47.82 kg |
-| Segmentação | YOLOv8s-Seg | ✅ Validado | mAP50: 0.9948 / mAP50-95: 0.9735 |
-
-Detalhes completos de cada treinamento (hiperparâmetros, datasets, passo a passo) estão documentados nos READMEs de cada subpasta em `models/`.
-
----
-
-## Roadmap (Próximos Passos)
-
-- Reduzir o MAE do modelo de Fine-Tuning para que supere o modelo atual em produção.
-- Integrar a etapa de segmentação (YOLOv8) ao pipeline da aplicação web, isolando o boi do fundo antes da estimativa de peso.
-- Avaliar viabilidade de embarcar o pipeline completo (segmentação + regressão) em ambientes com recursos limitados.
-- Expandir o dataset com mais imagens e condições de captura (iluminação, ângulo, raça).
-
----
-
-## Licença
-
-Este projeto está licenciado sob a **MIT License**. Veja o arquivo `LICENSE` para mais detalhes.
-
----
-
-## Autores
-
-* **Ludivino José Da Silva**
-* **Lucas Teixeira**
+Diretrizes técnicas para execução local e publicação (deploy) deste repositório.
+=======
+### Desenvolvimento de App
 * **Pedro Omna**
-
-*Projeto Integrador I — Engenharia de Computação, UFSC (2026.1).*
+  
+Arquivo gerado automaticamente com instruções abrangentes para deploy e execução local.
+>>>>>>> c3e502d8c4c04fcf9a87cfce506f01af15694851

@@ -1,0 +1,10 @@
+{
+  "projectId": "bovinovision-ai",
+  "appId": "1:1081482257168:web:d21d7e08eb5024cea2fb95",
+  "apiKey": "AIzaSyD7D3uSJc6wb9bq-QSEpvKBWYZZGCdnZuk",
+  "authDomain": "bovinovision-ai.firebaseapp.com",
+  "firestoreDatabaseId": "(default)",
+  "storageBucket": "bovinovision-ai.firebasestorage.app",
+  "messagingSenderId": "1081482257168",
+  "measurementId": ""
+}
