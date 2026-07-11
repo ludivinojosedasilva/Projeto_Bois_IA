@@ -1,10 +1,11 @@
 # Edge Impulse — Modelo de Estimativa de Peso (Produção)
 
 > **Status: ✅ Modelo em produção.** Este é o modelo atualmente usado pelo sistema (`src/app.py`), carregado a partir de `models/edge-impulse/model.tflite`.
+> Membros da equipe responsável pelo desenvolvimento de Machine Learning desenvolveram modelos de Regressão/Transfer Learning com hiperparâmetros e atributos de imagem diferentes, a título de comparação e busca do modelo que mais desempenha melhor para resultados satisfatórios e mais estáveis de predição de peso.
 
 ## Resumo
 
-Modelo de regressão para estimativa de peso de bovinos a partir de imagens, treinado na plataforma [Edge Impulse](https://edgeimpulse.com/) usando **Transfer Learning** com base na arquitetura **MobileNet**.
+Modelo de regressão para estimativa de peso de bovinos a partir de imagens, treinado na plataforma [Edge Impulse](https://edgeimpulse.com/) usando **Transfer Learning** com base na arquitetura **MobileNet**. 
 
 ## Métricas obtidas
 
@@ -72,3 +73,7 @@ Ver `data/dataset/README.md` — mesmo dataset usado também no Fine-Tuning.
 | MAE | Erro médio absoluto — erro médio em kg |
 | Explained Variance Score | O quanto o modelo explica a variação real dos pesos (ideal: próximo de 1.0) |
 | Deployment | Exportação do modelo treinado para uso fora da plataforma |
+
+## Autores
+
+Lucas Teixeira Belli, Ludivino José da Silva
