@@ -142,3 +142,7 @@ pillow
 ```
 
 Estão disponíveis três formatos exportados — modelo_bois.pt (PyTorch, formato nativo, recomendado para uso com a biblioteca Ultralytics), modelo_bois.onnx (formato leve e multiplataforma) e modelo_bois.tflite (otimizado para dispositivos com recursos limitados, disponível em precisão float32 e float16).
+
+## Autor
+
+Lucas Teixeira Belli
