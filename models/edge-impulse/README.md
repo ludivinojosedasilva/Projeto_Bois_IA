@@ -76,4 +76,4 @@ Ver `data/dataset/README.md` — mesmo dataset usado também no Fine-Tuning.
 
 ## Autores
 
-Lucas Teixeira Belli, Ludivino José da Silva
+Ludivino José da Silva, Lucas Teixeira Belli
