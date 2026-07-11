@@ -32,6 +32,8 @@ O modelo **não substitui** o modelo de predição de peso (Edge Impulse) — el
 - **Formato das anotações:** YOLO segmentação (.txt com polígonos normalizados)
 - **Resolução de entrada:** 640×640 px (redimensionamento automático)
 
+  Ver `data/dataset-seg/README.md`
+  
 ### Limpeza realizada antes do treino
 
 O dataset original apresentava dois problemas que foram corrigidos:
