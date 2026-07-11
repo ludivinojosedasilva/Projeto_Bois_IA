@@ -9,7 +9,7 @@
 ![PWA](https://img.shields.io/badge/PWA-Suportado-orange?logo=pwa)
 ![Status: Em Desenvolvimento](https://img.shields.io/badge/Status-Em%20Desenvolvimento-yellow.svg)
 
-**Autores:** Ludivino José Da Silva, Lucas Teixeira e Pedro Omna
+**Autores:** Ludivino José Da Silva, Lucas Teixeira Belli e Pedro Omna
 **Disciplina:** Projeto Integrador I (2026.1) – Engenharia de Computação (UFSC)
 
 ---
@@ -328,7 +328,7 @@ Este projeto está licenciado sob a **MIT License**. Veja o arquivo `LICENSE` pa
 ## Autores
 
 * **Ludivino José Da Silva**
-* **Lucas Teixeira**
+* **Lucas Teixeira Belli**
 * **Pedro Omna**
 
 *Projeto Integrador I — Engenharia de Computação, UFSC (2026.1).*
