@@ -37,10 +37,10 @@ O projeto segue um fluxo distribuído em módulos independentes:
        ▼
 [ Backend API Python — porta 8001 ]
        │
-       │  2. YOLOv8s-Seg isola o animal na imagem
-       │  3. LiteRT / MobileNet calcula o peso
+       │  2. YOLOv8s-Seg isola o animal na imagem (modelo_bois.pt)
+       │  3. LiteRT / MobileNet calcula o peso (model.tflite)
        ▼
-[ Resposta: Peso (kg) + Confiança + Margem de Erro ]
+[ Resposta: Peso (kg) + Confiança + Margem de Erro + Status Abate ]
        │
        ▼
 [ Frontend PWA — exibe resultado e salva no Firebase/Supabase ]
@@ -63,13 +63,13 @@ Cada módulo possui documentação técnica detalhada na sua respectiva pasta em
 
 ## Funcionalidades
 
-- **Captura Nativa e Upload de Imagem:** Otimizado para fotografar o bovino diretamente do curral pelo navegador do celular, sem necessidade de instalar nada além do PWA.
-- **Instalação como App (PWA):** O sistema pode ser adicionado à tela inicial do Android ou iOS como um aplicativo nativo, com ícone próprio, modo tela cheia e funcionamento offline parcial via Service Workers.
-- **Estimativa de Peso com IA:** O backend processa a imagem com YOLOv8 (segmentação) + LiteRT (regressão), retornando o peso estimado, a confiança da predição e a margem de erro estatística.
-- **Status de Aptidão para Abate:** O sistema classifica automaticamente o animal como **APTO** (peso ≥ 380 kg) ou **NÃO APTO** (peso < 380 kg) para abate.
+- **Captura Nativa e Upload de Imagem:** Otimizado para fotografar o bovino diretamente do curral pelo navegador do celular.
+- **Instalação como App (PWA):** Pode ser adicionado à tela inicial do Android ou iOS como app nativo, com ícone próprio e modo tela cheia.
+- **Estimativa de Peso com IA:** Backend processa a imagem com YOLOv8 (segmentação) + LiteRT (regressão), retornando peso estimado, confiança e margem de erro.
+- **Status de Aptidão para Abate:** Classifica automaticamente o animal como **APTO** (peso ≥ 380 kg) ou **NÃO APTO** (peso < 380 kg).
 - **Autenticação de Usuários:** Sistema de login seguro para controle de operadores da fazenda.
-- **Histórico Sincronizado em Nuvem:** Pesagens salvas em banco de dados em tempo real (Firebase Firestore / Supabase), acessíveis de qualquer dispositivo.
-- **Análise de Evolução:** Painéis e gráficos para acompanhar o Ganho Médio Diário (GMD) e a evolução de peso de cada animal ao longo do tempo.
+- **Histórico Sincronizado em Nuvem:** Pesagens salvas em Firebase Firestore / Supabase, acessíveis de qualquer dispositivo.
+- **Análise de Evolução:** Painéis e gráficos para acompanhar o Ganho Médio Diário (GMD) e a evolução de peso de cada animal.
 
 ---
 
@@ -87,12 +87,6 @@ Cada módulo possui documentação técnica detalhada na sua respectiva pasta em
 ### Software — Frontend (Node.js)
 - **Node.js:** 18.x ou superior
 - **Gerenciador de pacotes:** `npm`
-
-### Ferramentas adicionais
-- **Plataforma de treinamento de IA:** [Edge Impulse](https://edgeimpulse.com/) e Google Colab
-- **Banco de dados:** Firebase Firestore e/ou Supabase
-- **Controle de versão:** `git`
-- **IDE recomendada:** VS Code
 
 ### Bibliotecas Python — Backend (`ml-service/requirements.txt`)
 
@@ -122,53 +116,81 @@ Cada módulo possui documentação técnica detalhada na sua respectiva pasta em
 
 ## Estrutura do Repositório
 
+O repositório está organizado em duas partes principais: os **recursos de IA** (modelos treinados, datasets, protótipo de validação) na raiz, e o **app PWA** (frontend + backend) dentro de `desenvolvimento-apk/`.
+
 ```
 Projeto_Bois_IA/
 │
-├── desenvolvimento-apk/          # 📱 App PWA (React + Vite + TypeScript)
-│   ├── src/                      # Código-fonte do frontend
-│   │   ├── components/           # Componentes React (telas, modais, sidebar)
-│   │   ├── lib/                  # Integrações (Firebase, Supabase)
-│   │   ├── assets/               # Imagens e recursos estáticos
-│   │   └── App.tsx               # Componente raiz da aplicação
-│   ├── ml-service/               # 🧠 Backend Python (API de IA)
-│   │   ├── main.py               # API FastAPI com endpoint de predição
-│   │   └── requirements.txt      # Dependências Python do backend
-│   ├── public/                   # Ícones PWA e service worker
-│   ├── supabase/                 # Schema e migrations do banco relacional
-│   ├── Prototipo-das-telas/      # Mockups e protótipos de interface
-│   ├── firebase-applet-config.json
-│   ├── firestore.rules           # Regras de segurança do Firestore
-│   ├── package.json              # Dependências Node.js
-│   ├── vite.config.ts            # Configuração do Vite e PWA
-│   └── tsconfig.json
+│   README.md
+│   requirements.txt          # Dependências Python do protótipo Streamlit
+│   .gitignore
+│   LICENSE
 │
-├── models/                       # 🤖 Modelos de IA treinados
-│   ├── segmentation/             # YOLOv8s-Seg (mAP50: 0.9948)
-│   ├── edge-impulse/             # Modelo em PRODUÇÃO (MAE: 32.87 kg)
-│   └── fine-tuning/              # Modelo experimental (MAE: 47.82 kg)
+├── src/                      # 🔬 Protótipo Streamlit (usado nos Sprints iniciais de validação)
+│   ├── app.py                # Interface Streamlit para validação dos modelos de IA
+│   └── main.py               # Script auxiliar
 │
-├── src/                          # 🔬 Protótipo Streamlit (usado nos Sprints iniciais)
-│   ├── app.py                    # Interface Streamlit de validação dos modelos
-│   └── main.py                   # Script auxiliar
+├── models/                   # 🤖 Modelos de IA treinados e documentados
+│   ├── segmentation/         # YOLOv8s-Seg — mAP50: 0.9948 / mAP50-95: 0.9735
+│   │       modelo_bois.pt    # Modelo PyTorch (recomendado)
+│   │       modelo_bois.onnx  # Formato multiplataforma
+│   │       best_float32.tflite
+│   │       best_float16.tflite
+│   │       segmentacao_bois_yolov8.ipynb
+│   │       README.md
+│   │
+│   ├── edge-impulse/         # Transfer Learning (MobileNet) — MAE: 32.87 kg ✅ PRODUÇÃO
+│   │       model.tflite      # Modelo em produção (usado pelo ml-service)
+│   │       edge-impulse-export.zip
+│   │       README.md
+│   │
+│   └── fine-tuning/          # Fine-Tuning experimental — MAE: 47.82 kg 🧪
+│           model.tflite
+│           FineTuning_Rayvora.ipynb
+│           README.md
 │
 ├── data/
-│   └── dataset/                  # Dataset de imagens (fora do Git — ver README)
+│   └── dataset/              # Dataset de imagens + pesos reais
+│           README.md         # ⚠️ Arquivo grande (2.5 GB) — fora do Git, ver link no README
 │
 ├── external/
-│   └── TCC_V2-master.zip         # Projeto de referência usado como base do Fine-Tuning
+│   └── TCC_V2-master.zip     # Projeto de referência usado como base do Fine-Tuning
+│       README.md
 │
-├── requirements.txt              # Dependências Python do protótipo Streamlit
-├── .gitignore
-├── LICENSE
-└── README.md
+└── desenvolvimento-apk/      # 📱 App PWA completo (Frontend + Backend de IA)
+    │
+    ├── src/                  # 💻 Frontend React (Componentes, Views, Estilos)
+    │   ├── components/       # Componentes React (telas, modais, sidebar, header)
+    │   ├── lib/              # Integrações (Firebase, Supabase, schemas)
+    │   ├── assets/images/    # Imagens estáticas do app
+    │   ├── App.tsx           # Componente raiz
+    │   ├── main.tsx          # Entry point do React
+    │   └── index.css         # Estilos globais
+    │
+    ├── ml-service/           # 🧠 Backend Python (API FastAPI de IA)
+    │   ├── main.py           # API com endpoint /predict
+    │   ├── requirements.txt  # Dependências Python do backend
+    │   └── models/           # ⚠️ PASTA NÃO VERSIONADA — deve ser criada localmente
+    │           modelo_bois.pt     # OBRIGATÓRIO — copiar de models/segmentation/
+    │           model.tflite       # OBRIGATÓRIO — escolher UM dos dois abaixo:
+    │                              #   Opção A (recomendada): models/edge-impulse/model.tflite
+    │                              #   Opção B (experimental): models/fine-tuning/model.tflite
+    │
+    ├── public/               # Ícones PWA, favicon, service worker
+    ├── supabase/             # Schema e migrations do banco relacional
+    ├── Prototipo-das-telas/  # Mockups e protótipos de interface
+    ├── firebase-applet-config.json
+    ├── firestore.rules       # Regras de segurança do Firestore
+    ├── package.json          # Dependências Node.js
+    ├── vite.config.ts        # Configuração do Vite e PWA
+    └── tsconfig.json
 ```
+
+> **Nota:** A pasta `desenvolvimento-apk/ml-service/models/` **não está versionada no Git** (está no `.gitignore`) porque contém arquivos binários pesados. Ela deve ser criada manualmente seguindo as instruções abaixo.
 
 ---
 
 ## Instalação e Configuração
-
-Como a arquitetura é dividida entre frontend e backend, você precisará configurar os dois em paralelo.
 
 ### Passo 1: Clonar o repositório
 
@@ -177,7 +199,27 @@ git clone https://github.com/ludivinojosedasilva/Projeto_Bois_IA.git
 cd Projeto_Bois_IA
 ```
 
-### Passo 2: Configurar o Backend de IA (`ml-service`)
+### Passo 2: Configurar os modelos do Backend de IA
+
+A pasta `desenvolvimento-apk/ml-service/models/` precisa ser criada manualmente e populada com os modelos corretos:
+
+```sh
+# Criar a pasta de modelos do backend
+mkdir desenvolvimento-apk/ml-service/models
+```
+
+Copie os seguintes arquivos para dentro dessa pasta:
+
+| Arquivo | Origem no repositório | Obrigatoriedade |
+|---|---|---|
+| `modelo_bois.pt` | `models/segmentation/modelo_bois.pt` | ✅ Obrigatório (segmentação YOLOv8) |
+| `model.tflite` | `models/edge-impulse/model.tflite` *(recomendado)* **ou** `models/fine-tuning/model.tflite` | ✅ Obrigatório (escolha um) |
+
+> **Qual `.tflite` usar?**
+> - **`models/edge-impulse/model.tflite`** → Transfer Learning (MobileNet), MAE 32.87 kg. **Recomendado para produção.**
+> - **`models/fine-tuning/model.tflite`** → Fine-Tuning experimental, MAE 47.82 kg. Use apenas para testes e pesquisa.
+
+### Passo 3: Configurar o Backend de IA
 
 ```sh
 cd desenvolvimento-apk/ml-service
@@ -187,7 +229,6 @@ python -m venv venv
 
 # Windows:
 venv\Scripts\activate
-
 # Linux/Mac:
 source venv/bin/activate
 
@@ -198,9 +239,9 @@ pip install -r requirements.txt
 uvicorn main:app --host 0.0.0.0 --port 8001
 ```
 
-Deixe este terminal aberto. A API ficará disponível em `http://localhost:8001`. Para testar, acesse `http://localhost:8001/docs` — o FastAPI gera uma interface de teste automática.
+Deixe este terminal aberto. Acesse `http://localhost:8001/docs` para testar a API.
 
-### Passo 3: Configurar o Frontend PWA
+### Passo 4: Configurar o Frontend PWA
 
 Abra um **segundo terminal** na raiz do projeto:
 
@@ -221,13 +262,11 @@ npm run dev
 
 O frontend estará acessível em `http://localhost:3000`.
 
-### Passo 4: Testar no Celular (Rede Local)
+### Passo 5: Testar no Celular (Rede Local)
 
-Para usar a câmera do celular e testar o PWA:
+1. **Descubra o IP do PC:** Execute `ipconfig` (Windows) e anote o IPv4 (ex: `192.168.0.105`).
 
-1. **Descubra o IP do PC:** Abra o terminal e rode `ipconfig` (Windows). Anote o IPv4 (ex: `192.168.0.105`).
-
-2. **Libere o Firewall (Windows):** Abra o PowerShell como Administrador e rode:
+2. **Libere o Firewall (Windows):** Abra o PowerShell como Administrador:
 
 ```powershell
 New-NetFirewallRule -DisplayName "Rayvora Dev 3000" -Direction Inbound -LocalPort 3000 -Protocol TCP -Action Allow
@@ -236,7 +275,7 @@ New-NetFirewallRule -DisplayName "Rayvora Dev 8001" -Direction Inbound -LocalPor
 
 3. **Acesse no Smartphone:** Abra o navegador e acesse `http://SEU_IP:3000`.
 
-4. **Instale o App:** Toque no menu do navegador e selecione **"Adicionar à Tela Inicial"**.
+4. **Instale o App:** Toque no menu do navegador → **"Adicionar à Tela Inicial"**.
 
 ---
 
@@ -248,13 +287,13 @@ New-NetFirewallRule -DisplayName "Rayvora Dev 8001" -Direction Inbound -LocalPor
    - Toque em **"Nova Avaliação"**.
    - Informe o identificador do brinco do animal (ex: `BOI_01`).
    - Tire uma foto ou faça upload de uma imagem do bovino.
-   - O sistema processa a imagem e exibe o peso estimado, a confiança e o status de aptidão para abate.
+   - O sistema retorna o peso estimado, a confiança e o **status de aptidão para abate**.
 
 3. **Histórico:**
-   - Acesse a aba de histórico para visualizar todas as pesagens registradas, sincronizadas em tempo real com o banco de dados.
+   - Visualize todas as pesagens registradas, sincronizadas em tempo real com o banco de dados.
 
 4. **Análise de Evolução:**
-   - Selecione um animal pelo brinco para visualizar o gráfico de evolução de peso ao longo do tempo e as estatísticas de ganho médio diário (GMD).
+   - Selecione um animal pelo brinco para visualizar o gráfico de evolução de peso e o Ganho Médio Diário (GMD).
 
 ---
 
@@ -266,17 +305,17 @@ New-NetFirewallRule -DisplayName "Rayvora Dev 8001" -Direction Inbound -LocalPor
 | Fine-Tuning | Ajuste fino customizado (MobileNet) | 🧪 Experimental | MAE: 47.82 kg |
 | Segmentação | YOLOv8s-Seg | ✅ Validado | mAP50: 0.9948 / mAP50-95: 0.9735 |
 
-Detalhes completos de cada treinamento (hiperparâmetros, datasets, passo a passo) estão documentados nos READMEs de cada subpasta em `models/`.
+Detalhes completos de cada treinamento estão documentados nos READMEs de cada subpasta em `models/`.
 
 ---
 
 ## Roadmap (Próximos Passos)
 
 - Reduzir o MAE do modelo de Fine-Tuning para superar o modelo atual em produção.
-- Integrar o módulo de segmentação YOLOv8 ao pipeline do backend (`ml-service`), isolando o boi automaticamente antes da estimativa.
-- Publicar o backend de IA em servidor de nuvem (Railway ou Render) para funcionamento em produção sem depender de rede local.
+- Integrar o módulo de segmentação YOLOv8 ao pipeline do backend automaticamente.
+- Publicar o backend de IA em servidor de nuvem (Railway ou Render) para produção sem rede local.
 - Gerar o build de produção do PWA (`npm run build`) e hospedar o frontend.
-- Expandir o dataset com mais imagens, raças e condições de captura (iluminação, ângulo, distância).
+- Expandir o dataset com mais imagens, raças e condições de captura variadas.
 
 ---
 
